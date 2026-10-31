@@ -8,7 +8,8 @@
 - [x] Репозиторий `MrArtik476/anime-town`, локальная копия в `Buld/`
 - [x] Obsidian MCP подключён к Claude Code (чтение и запись)
 - [x] Документация в `Buld/`: CLAUDE.md, ARCHITECTURE.md, ROADMAP.md, DEVELOPMENT.md, `.env.example`, `.gitignore`
-- [ ] Первый коммит в `main` и push (после подтверждения)
+- [x] Первый коммит `dd5a3a7` в `main`, push в `origin` (`github.com/MrArtik476/anime-town`, приватный); локальная `main` синхронизирована с `origin/main`
+- [x] Подготовка Git/GitHub завершена. Защита `main` средствами GitHub недоступна (GitHub Free, приватный репозиторий) — до её появления: ветки под задачи, Pull Request, проверка изменений перед слиянием, без force-push и удаления `main`
 - [ ] Vercel-коннектор
 - [ ] Проверка Playwright MCP (браузерные проверки)
 
