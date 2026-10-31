@@ -157,19 +157,50 @@ export function formatFuzzyDate(date: FuzzyDate | null | undefined): string | nu
   return `${MONTHS_NOMINATIVE[index]} ${date.year}`;
 }
 
+const NAMED_ENTITIES: Record<string, string> = {
+  amp: "&",
+  lt: "<",
+  gt: ">",
+  quot: '"',
+  apos: "'",
+  nbsp: " ",
+  mdash: "—",
+  ndash: "–",
+  hellip: "…",
+  laquo: "«",
+  raquo: "»",
+  lsquo: "‘",
+  rsquo: "’",
+  ldquo: "“",
+  rdquo: "”",
+  middot: "·",
+  times: "×",
+};
+
+/**
+ * Декодирует HTML-сущности за один проход: именованные (&hellip;, &ndash; …) и числовые (&#39;, &#x27;).
+ * Один проход важен: `&amp;lt;` должен стать текстом `&lt;`, а не `<`. Неизвестные сущности остаются как есть.
+ */
+export function decodeEntities(text: string): string {
+  return text.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (entity, body: string) => {
+    if (body.startsWith("#")) {
+      const hex = body[1] === "x" || body[1] === "X";
+      const code = Number.parseInt(body.slice(hex ? 2 : 1), hex ? 16 : 10);
+      return code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : entity;
+    }
+    return NAMED_ENTITIES[body.toLowerCase()] ?? entity;
+  });
+}
+
+/** Хвосты-атрибуции в конце строки: «(Source: Crunchyroll)», «[Written by MAL Rewrite]». */
+const ATTRIBUTION = /[ \t]*[([]\s*(?:source|written by)\b[^)\]\n]*[)\]][ \t]*(?=\n|$)/gi;
+
 /** Описание AniList приходит с тегами <br>, <i>, <b> и HTML-сущностями — превращаем в чистый текст. */
 export function cleanDescription(raw: string | null | undefined): string | null {
   if (!raw) return null;
-  const text = raw
-    .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<[^>]+>/g, "")
-    .replace(/&quot;/g, '"')
-    .replace(/&#0?39;|&apos;/g, "'")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&nbsp;/g, " ")
-    .replace(/&mdash;/g, "—")
-    .replace(/&amp;/g, "&")
+  const text = decodeEntities(raw.replace(/<br\s*\/?>/gi, "\n").replace(/<[^>]+>/g, ""))
+    .replace(ATTRIBUTION, "")
+    .replace(/[ \t]+\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
   return text || null;

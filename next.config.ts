@@ -1,7 +1,6 @@
 import type { NextConfig } from "next";
 
-// E2E-сборка (ANIME_TOWN_E2E=1): отдельная папка, картинки без оптимизатора —
-// браузер грузит их напрямую, и Playwright подменяет ответы без доступа к сети.
+// E2E-сборка (ANIME_TOWN_E2E=1) собирается в отдельную папку, чтобы не затирать обычную `.next`.
 const isE2E = process.env.ANIME_TOWN_E2E === "1";
 
 const nextConfig: NextConfig = {
@@ -9,7 +8,8 @@ const nextConfig: NextConfig = {
   partialPrefetching: true,
   distDir: isE2E ? ".next-e2e" : ".next",
   images: {
-    unoptimized: isE2E,
+    // Картинки AniList выводятся с `unoptimized` (см. lib/anilist/images.ts): браузер грузит их с CDN AniList
+    // напрямую. Шаблон оставлен на случай, если флаг где-то забудут: картинка не сломается, а пройдёт оптимизатор.
     remotePatterns: [new URL("https://s4.anilist.co/file/anilistcdn/**")],
   },
   turbopack: {

@@ -5,18 +5,20 @@ import { useRouter } from "next/navigation";
 import { useTransition } from "react";
 
 import { Button } from "@/components/ui/button";
-import { type AniListErrorCode, ERROR_MESSAGES } from "@/lib/anilist/errors";
+import { type DataErrorCode, ERROR_MESSAGES } from "@/lib/anilist/errors";
 import { cn } from "@/lib/utils";
 
 type DataErrorProps = {
-  code: AniListErrorCode;
+  code: DataErrorCode;
+  /** Для RATE_LIMITED — через сколько секунд можно повторить. */
+  retryAfter?: number | null;
   /** Своя повторная попытка; по умолчанию — перезапрос серверных данных страницы. */
   onRetry?: () => void;
   compact?: boolean;
   className?: string;
 };
 
-export function DataError({ code, onRetry, compact, className }: DataErrorProps) {
+export function DataError({ code, retryAfter, onRetry, compact, className }: DataErrorProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const message = ERROR_MESSAGES[code];
@@ -39,6 +41,9 @@ export function DataError({ code, onRetry, compact, className }: DataErrorProps)
       <div>
         <p className="font-heading text-base font-semibold">{message.title}</p>
         <p className="mt-1 max-w-md text-sm text-muted-foreground">{message.description}</p>
+        {code === "RATE_LIMITED" && retryAfter ? (
+          <p className="mt-1 text-sm text-muted-foreground">{`Повторить можно через ${retryAfter} с.`}</p>
+        ) : null}
       </div>
       {code !== "NOT_FOUND" && (
         <Button variant="outline" onClick={retry} disabled={isPending} className="mt-1">
