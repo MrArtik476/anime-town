@@ -1,0 +1,38 @@
+# dependencies
+node_modules/
+
+# Next.js / build
+.next/
+out/
+build/
+*.tsbuildinfo
+next-env.d.ts
+
+# env — секреты не коммитятся
+.env*
+!.env.example
+
+# Vercel
+.vercel/
+
+# Playwright
+playwright-report/
+test-results/
+blob-report/
+playwright/.cache/
+
+# Supabase
+supabase/.temp/
+supabase/.branches/
+
+# logs / OS / editor
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db
+.vscode/*
+!.vscode/extensions.json
+
+# Claude Code — локальные настройки
+.claude/settings.local.json
+.mcp.json
