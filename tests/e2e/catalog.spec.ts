@@ -71,6 +71,18 @@ test.describe("Каталог", () => {
     await expect(chips).toHaveCount(0);
   });
 
+  test("сортировка «В тренде» отличается от популярности", async ({ page }) => {
+    await page.goto("/catalog?sort=trending");
+
+    await expect(desktopFilter(page, "Сортировка")).toHaveValue("trending");
+    await expect(cards(page).first()).toContainText("Meteor Sprint");
+
+    await desktopFilter(page, "Сортировка").selectOption("popularity");
+    await expect(page).toHaveURL(/sort=popularity/);
+    await expect(cards(page).first()).toContainText("Звёздный город");
+    await expect(cards(page).filter({ hasText: "Meteor Sprint" })).toHaveCount(0);
+  });
+
   test("сортировка по рейтингу и по числу серий", async ({ page }) => {
     await page.goto("/catalog");
 
@@ -134,9 +146,60 @@ test.describe("API каталога", () => {
     expect(body.ok).toBe(true);
     expect(body.data.items.every((item: { genres: string[] }) => item.genres.includes("Action"))).toBe(true);
 
-    expect((await request.get("/api/catalog?page=0")).status()).toBe(400);
+    const invalid = await request.get("/api/catalog?page=0");
+    expect(invalid.status()).toBe(400);
+    expect(await invalid.json()).toMatchObject({ ok: false, error: { code: "INVALID_PARAMS" } });
     const limited = await request.get("/api/catalog?q=__ratelimit__&page=2");
     expect(limited.status()).toBe(429);
     expect(limited.headers()["retry-after"]).toBe("60");
+  });
+});
+
+test.describe("Лимит запросов каталога", () => {
+  // Лимит считается по IP: фикстура выдаёт каждому тесту свой x-forwarded-for, поэтому тесты не мешают друг другу.
+  const LIMIT = 20;
+
+  const exhaustLimit = async (page: import("@playwright/test").Page) => {
+    for (let i = 0; i < LIMIT; i++) {
+      expect((await page.request.get("/api/catalog?page=2")).status()).toBe(200);
+    }
+  };
+
+  test("API отвечает 429 с Retry-After и сообщением на русском", async ({ page }) => {
+    await exhaustLimit(page);
+
+    const limited = await page.request.get("/api/catalog?page=2");
+    expect(limited.status()).toBe(429);
+    const retryAfter = Number(limited.headers()["retry-after"]);
+    expect(retryAfter).toBeGreaterThan(0);
+    expect(retryAfter).toBeLessThanOrEqual(60);
+    const body = await limited.json();
+    expect(body).toMatchObject({ ok: false, error: { code: "RATE_LIMITED", retryAfter } });
+    expect(body.error.message).toContain("Подождите");
+  });
+
+  test("страница с фильтрами отвечает 429, каталог без фильтров доступен", async ({ page }) => {
+    await exhaustLimit(page);
+
+    const response = await page.goto("/catalog?q=Star");
+    expect(response?.status()).toBe(429);
+    expect(response?.headers()["retry-after"]).toBeTruthy();
+    await expect(page.getByRole("heading", { level: 1, name: "Слишком много запросов" })).toBeVisible();
+
+    await page.getByRole("link", { name: "Открыть каталог" }).click();
+    await expect(page).toHaveURL(/\/catalog$/);
+    await expect(cards(page)).toHaveCount(24);
+  });
+
+  test("«Загрузить ещё» при превышении лимита показывает, сколько ждать", async ({ page }) => {
+    await page.goto("/catalog");
+    await expect(cards(page)).toHaveCount(24);
+    await exhaustLimit(page);
+
+    await page.getByRole("button", { name: "Загрузить ещё" }).click();
+
+    const alert = page.getByRole("alert").filter({ hasText: "Слишком много запросов" });
+    await expect(alert).toBeVisible();
+    await expect(alert).toContainText(/Повторить можно через \d+ с\./);
   });
 });
