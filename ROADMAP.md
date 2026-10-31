@@ -1,6 +1,6 @@
 # ROADMAP — Anime Town
 
-## Этап 0. Среда разработки ← текущий
+## Этап 0. Среда разработки
 - [x] Аудит окружения, плагинов, MCP
 - [x] Документация, 8 проектных Skills, структура Obsidian
 - [x] Node.js и npm на ПК
@@ -13,12 +13,16 @@
 - [ ] Vercel-коннектор
 - [ ] Проверка Playwright MCP (браузерные проверки)
 
-## Этап 1. Фундамент
-- Next.js + TS + Tailwind + shadcn/ui, ESLint, Playwright
-- CI (GitHub Actions): lint + typecheck + build + e2e на каждый PR
-- Supabase-проект, клиенты `lib/supabase`, middleware
-- Дизайн-система: токены, тёмная тема, базовые компоненты, layout
-- Деплой-превью на Vercel
+## Этап 1. Фундамент ← текущий
+- [x] Next.js 16.4 + React 19.3 + TypeScript 6.0 + Tailwind 4.3 + shadcn/ui, ESLint 9, скрипты `lint`/`typecheck`/`build`
+- [x] Структура `src/` (app, components, config, hooks, lib, types), стартовая главная (адаптивная, тёмная тема)
+- [x] Зависимости стека: Motion, Supabase JS + SSR, HLS.js, Playwright
+- [x] Клиенты `lib/supabase` (браузер, сервер) без подключения к проекту
+- [ ] Supabase-проект, `proxy.ts` для обновления сессии, генерация типов
+- [ ] Дизайн-система: зафиксировать токены и базовые компоненты в Obsidian `03 - Дизайн-система`
+- [ ] Playwright e2e-тесты (`tests/e2e`) и скрипт `test:e2e`
+- [ ] CI (GitHub Actions): lint + typecheck + build + e2e на каждый PR
+- [ ] Деплой-превью на Vercel
 
 ## Этап 2. Каталог (MVP-чтение)
 - Схема `anime`, `genres`, синхронизация с AniList

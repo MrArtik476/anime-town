@@ -22,6 +22,31 @@ Browser ──► Vercel (Next.js 16, App Router)
 
 ## 2. Структура папок
 
+### Сейчас (фундамент, этап 1)
+```
+src/
+  app/
+    layout.tsx             корневой layout: шрифты (Geist, Unbounded, кириллица), тёмная тема, MotionProvider
+    page.tsx               главная: витрина платформы и этапов
+    globals.css            Tailwind 4 + токены темы (shadcn/ui, CSS-переменные)
+  components/
+    ui/                    shadcn/ui (button)
+    layout/                SiteHeader, SiteFooter
+    home/                  секции главной: Hero, Features, CatalogPreview, Roadmap
+    motion/                FadeIn (клиентский, Motion)
+    providers/             MotionProvider (prefers-reduced-motion)
+  config/                  site.ts (название, описание, URL), roadmap.ts (этапы для главной)
+  hooks/                   пока пусто
+  lib/
+    utils.ts               cn()
+    supabase/              env.ts, client.ts (браузер), server.ts (Server Components / Actions)
+  types/database.ts        заглушка, перезаписывается `npm run db:types`
+AGENTS.md                  блок правил Next.js для агентов (поддерживается `next dev`)
+components.json            конфигурация shadcn/ui (стиль base-nova, Base UI)
+```
+Supabase-клиенты не создаются при импорте: `requireSupabaseEnv()` выбрасывает понятную ошибку, пока в `.env.local` нет реальных URL и publishable-ключа (заглушки из `.env.example` не принимаются).
+
+### Целевая
 ```
 src/
   app/
@@ -44,10 +69,12 @@ src/
     notifications/
     admin/
   components/ui/           shadcn/ui
+  config/  hooks/
   lib/
-    supabase/  server.ts, client.ts, middleware.ts
+    supabase/  env.ts, server.ts, client.ts, proxy.ts (обновление сессии)
     anilist/   client.ts, queries.graphql.ts
     utils.ts
+  proxy.ts                 Next.js 16 proxy (бывш. middleware.ts) — вызывает lib/supabase/proxy
   types/database.ts        сгенерировано Supabase
 supabase/
   migrations/              SQL-миграции (единственный источник схемы)
@@ -73,7 +100,7 @@ tests/e2e/                 Playwright
 ## 4. Ключевые потоки
 - **Каталог**: `anime` + фильтры (жанр, год, сезон, статус, формат, рейтинг) → индексы + полнотекстовый поиск (`tsvector`, `pg_trgm` для опечаток).
 - **Просмотр**: страница серии получает плейлист → HLS.js → каждые ~10 с upsert в `watch_progress`.
-- **Авторизация**: Supabase Auth (email + OAuth), сессия в cookies, `middleware.ts` обновляет токен, проверка — `supabase.auth.getUser()`/`getClaims()` на сервере.
+- **Авторизация**: Supabase Auth (email + OAuth), сессия в cookies, `proxy.ts` (Next.js 16, бывш. `middleware.ts`) обновляет токен, проверка — `supabase.auth.getUser()`/`getClaims()` на сервере.
 - **Админка**: доступ по `profiles.role = 'admin'`, проверка и в RLS, и в layout.
 
 ## 5. Решения (ADR кратко)
