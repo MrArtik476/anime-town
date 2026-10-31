@@ -33,7 +33,7 @@ Skills меняются в `Buld/.claude/skills/`, после чего копи�
 Next.js 16 отличается от того, что в памяти модели: перед кодом на Next.js читай актуальные гайды в `node_modules/next/dist/docs/` и/или Context7. В частности, `middleware.ts` переименован в `proxy.ts`. Блок в `AGENTS.md` поддерживает `next dev` — не редактировать вручную.
 
 ## Структура кода
-`src/app` — маршруты · `src/components/{ui,layout,home,motion,providers}` — компоненты (ui — только shadcn) · `src/config` — конфигурация сайта · `src/hooks` — хуки · `src/lib` — `utils.ts`, `supabase/` · `src/types` — типы (в т. ч. `database.ts`). Подробно — ARCHITECTURE.md §2.
+`src/app` — маршруты · `src/components/{ui,layout,anime,home,catalog,anime-details,motion,providers}` — компоненты (ui — только shadcn) · `src/config` — конфигурация сайта · `src/hooks` — хуки · `src/lib` — `anilist/` (клиент и запросы AniList), `anime/` (маппинг, форматирование, параметры каталога), `supabase/`, `utils.ts` · `src/types` — типы (в т. ч. `database.ts`). Подробно — ARCHITECTURE.md §2.
 
 ## Обязательные правила
 1. Перед использованием API библиотеки — свериться с актуальной документацией через **Context7**, не полагаться на память.
@@ -120,6 +120,9 @@ npm run lint         # ESLint
 npm run typecheck    # next typegen && tsc --noEmit
 npm run build        # production-сборка
 npm run start        # запуск собранной версии
+npm test             # unit-тесты (Vitest)
+npm run test:e2e     # E2E (Playwright, production-сборка + мок AniList)
 ```
-Появятся вместе с задачами (см. DEVELOPMENT.md → «Скрипты»): `npm run test`, `npm run test:e2e`, `npm run db:types`. Пока их нет, обязательные проверки перед коммитом — `lint`, `typecheck`, `build` и проверка страницы через Playwright MCP.
+Появится вместе с Supabase-проектом: `npm run db:types`. Обязательные проверки перед коммитом — `lint`, `typecheck`, `test`, `build`, `test:e2e`.
+AniList: лимит запросов низкий (30/мин на 31.10.2026) — не гонять живой API в циклах и тестах; для тестов есть мок (`tests/mock-anilist`).
 После запуска `npm run dev` в фоне — обязательно остановить сервер и убедиться, что порт 3000 освобождён (дочерний процесс node может остаться).
