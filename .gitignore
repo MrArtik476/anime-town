@@ -36,3 +36,6 @@ Thumbs.db
 # Claude Code — локальные настройки
 .claude/settings.local.json
 .mcp.json
+
+# Playwright MCP — снимки и скриншоты браузерных проверок
+.playwright-mcp/
