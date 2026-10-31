@@ -7,9 +7,10 @@ import { AnimeDetailsView } from "@/components/anime-details/anime-details-view"
 import { DetailsSkeleton } from "@/components/anime-details/details-skeleton";
 import { SiteFooter } from "@/components/layout/site-footer";
 import { SiteHeader } from "@/components/layout/site-header";
-import { getAnimeById } from "@/lib/anilist/api";
+import { getLocalizedAnimeById } from "@/lib/anilist/api";
 import { truncate } from "@/lib/anime/format";
 import { parseAnimeId } from "@/lib/anime/ids";
+import { scheduleMachineTranslation } from "@/lib/localization/service";
 
 type AnimePageProps = PageProps<"/anime/[id]">;
 
@@ -17,7 +18,7 @@ export async function generateMetadata({ params }: AnimePageProps): Promise<Meta
   const id = parseAnimeId((await params).id);
   if (!id) return { title: "Аниме не найдено" };
 
-  const result = await getAnimeById(id);
+  const result = await getLocalizedAnimeById(id);
   if (!result.ok) {
     return result.error.code === "NOT_FOUND"
       ? { title: "Аниме не найдено" } // noindex Next.js добавляет сам для notFound()
@@ -25,9 +26,11 @@ export async function generateMetadata({ params }: AnimePageProps): Promise<Meta
   }
 
   const anime = result.data;
-  const description = anime.description
-    ? truncate(anime.description.replace(/\s+/g, " "), 160)
-    : `${anime.title}: рейтинг, жанры, эпизоды, студия и связанные тайтлы.`;
+  // В сниппет поисковика — только русский текст; английский оригинал заменяется шаблоном.
+  const description =
+    anime.description?.language === "ru"
+      ? truncate(anime.description.text.replace(/\s+/g, " "), 160)
+      : `${anime.title}: рейтинг, жанры, эпизоды, студия и связанные тайтлы.`;
 
   return {
     title: anime.title,
@@ -60,7 +63,7 @@ async function AnimeContent({ params }: Pick<AnimePageProps, "params">) {
   const id = parseAnimeId((await params).id);
   if (!id) notFound();
 
-  const result = await getAnimeById(id);
+  const result = await getLocalizedAnimeById(id);
   if (!result.ok) {
     if (result.error.code === "NOT_FOUND") notFound();
     return (
@@ -70,6 +73,9 @@ async function AnimeContent({ params }: Pick<AnimePageProps, "params">) {
       </div>
     );
   }
+
+  // Нет русского описания — перевести в фоне после ответа (если переводчик настроен).
+  scheduleMachineTranslation(result.data, result.data.description);
 
   return <AnimeDetailsView anime={result.data} />;
 }

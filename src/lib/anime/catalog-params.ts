@@ -120,7 +120,43 @@ export function toCatalogVariables(filters: CatalogFilters, page: number): Catal
     season: filters.season,
     format: filters.format,
     status: filters.status,
+    idMalIn: null,
     excludedGenres: EXCLUDED_GENRES,
+  };
+}
+
+/**
+ * Поиск на кириллице: AniList по-русски не ищет, поэтому тайтлы находит Shikimori (до 50 MAL id),
+ * а AniList отдаёт их одним запросом с теми же фильтрами. Сортировка «по совпадению» — порядок Shikimori.
+ */
+export function toMalIdVariables(filters: CatalogFilters, malIds: number[]): CatalogPageVariables {
+  const sort = resolveSort(filters);
+  return {
+    ...toCatalogVariables(filters, 1),
+    perPage: malIds.length,
+    search: null,
+    idMalIn: malIds,
+    sort: sort === "relevance" ? ["POPULARITY_DESC"] : SORT_TO_ANILIST[sort],
+  };
+}
+
+/** Страница результатов русского поиска: порядок Shikimori для «по совпадению», нарезка по CATALOG_PAGE_SIZE. */
+export function paginateMalIdResults<T extends { malId: number | null }>(
+  items: T[],
+  malIds: number[],
+  filters: CatalogFilters,
+  page: number,
+): { items: T[]; page: number; hasNextPage: boolean } {
+  const rank = new Map(malIds.map((id, index) => [id, index]));
+  const ordered =
+    resolveSort(filters) === "relevance"
+      ? [...items].sort((a, b) => (rank.get(a.malId ?? 0) ?? Infinity) - (rank.get(b.malId ?? 0) ?? Infinity))
+      : items;
+  const start = (page - 1) * CATALOG_PAGE_SIZE;
+  return {
+    items: ordered.slice(start, start + CATALOG_PAGE_SIZE),
+    page,
+    hasNextPage: ordered.length > start + CATALOG_PAGE_SIZE,
   };
 }
 

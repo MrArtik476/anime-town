@@ -70,10 +70,16 @@ export function FeaturedAnime({ anime }: { anime: FeaturedAnimeData }) {
             </ul>
           )}
 
-          {anime.description && (
-            <p className="mt-5 hidden max-w-2xl text-sm leading-relaxed text-muted-foreground sm:block">
-              {truncate(anime.description.replace(/\s+/g, " "), 260)}
-            </p>
+          {/* Анонс на главной — только на русском; английский оригинал есть на странице тайтла. */}
+          {anime.description?.language === "ru" && (
+            <div className="mt-5 hidden max-w-2xl sm:block">
+              <p className="text-sm leading-relaxed text-muted-foreground">
+                {truncate(anime.description.text.replace(/\s+/g, " "), 260)}
+              </p>
+              <p className="mt-1.5 text-xs text-muted-foreground/80">
+                {anime.description.source === "shikimori" ? "Описание: Shikimori" : "Машинный перевод"}
+              </p>
+            </div>
           )}
 
           <div className="mt-7 flex flex-wrap gap-3">

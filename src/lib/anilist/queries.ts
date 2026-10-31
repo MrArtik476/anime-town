@@ -21,6 +21,7 @@ export const EXCLUDED_GENRES = ["Hentai"];
 
 const MEDIA_CARD_FIELDS = /* GraphQL */ `
   id
+  idMal
   title { romaji english native }
   synonyms
   coverImage { extraLarge large color }
@@ -95,6 +96,8 @@ export type CatalogPageVariables = {
   season: MediaSeason | null;
   format: MediaFormat | null;
   status: MediaStatus | null;
+  /** Поиск на кириллице: MAL id, найденные на Shikimori (AniList по-русски не ищет). */
+  idMalIn: number[] | null;
   excludedGenres: string[];
 };
 
@@ -104,14 +107,14 @@ export const CATALOG_PAGE_QUERY = gql<CatalogPageData, CatalogPageVariables>(/* 
   query CatalogPage(
     $page: Int!, $perPage: Int!, $sort: [MediaSort], $search: String, $genre: String,
     $seasonYear: Int, $season: MediaSeason, $format: MediaFormat, $status: MediaStatus,
-    $excludedGenres: [String]
+    $idMalIn: [Int], $excludedGenres: [String]
   ) {
     Page(page: $page, perPage: $perPage) {
       ${PAGE_INFO_FIELDS}
       media(
         type: ANIME, isAdult: false, sort: $sort, search: $search, genre: $genre,
         genre_not_in: $excludedGenres, seasonYear: $seasonYear, season: $season,
-        format: $format, status: $status
+        format: $format, status: $status, idMal_in: $idMalIn
       ) {
         ${MEDIA_CARD_FIELDS}
       }

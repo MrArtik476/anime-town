@@ -1,9 +1,19 @@
 import { cacheLife, cacheTag } from "next/cache";
+import { cache } from "react";
 
-import { type CatalogFilters, toCatalogVariables } from "@/lib/anime/catalog-params";
+import {
+  type CatalogFilters,
+  paginateMalIdResults,
+  toCatalogVariables,
+  toMalIdVariables,
+} from "@/lib/anime/catalog-params";
 import { mapFeatured, mapMediaToCard, mapMediaToDetails } from "@/lib/anime/mappers";
+import { loadLocalizations, localizeCards, localizeDescription } from "@/lib/localization/service";
+import { hasCyrillic } from "@/lib/localization/text";
+import { resolveTitles } from "@/lib/localization/resolve";
+import { searchShikimoriMalIds } from "@/lib/shikimori/api";
 import type { MediaSeason } from "@/lib/anilist/types";
-import type { AnimeDetails, AnimePage, HomeCollections } from "@/types/anime";
+import type { AnimeCard, AnimeDetails, AnimePage, HomeCollections } from "@/types/anime";
 
 import { anilistRequest } from "./client";
 import { AniListError, type AniListErrorCode, isAniListError, toErrorCode } from "./errors";
@@ -54,20 +64,35 @@ export async function getHomeCollections(
     });
     const trendingRaw = data.trending.media;
     const featuredRaw = trendingRaw.find((media) => media.bannerImage) ?? trendingRaw[0];
+    const featured = featuredRaw ? mapFeatured(featuredRaw) : null;
+    const trending = trendingRaw.map(mapMediaToCard);
+    const topRated = data.topRated.media.map(mapMediaToCard);
+    const seasonal = data.seasonal.media.map(mapMediaToCard);
+
+    // Три подборки и главный тайтл — одна пачка к хранилищу и Shikimori.
+    const { records, complete } = await loadLocalizations([...trending, ...topRated, ...seasonal]);
+    const localize = <T extends AnimeCard>(card: T) => resolveTitles(card, records.get(card.id));
 
     return {
-      featured: featuredRaw ? mapFeatured(featuredRaw) : null,
-      trending: trendingRaw.map(mapMediaToCard),
-      topRated: data.topRated.media.map(mapMediaToCard),
-      seasonal: data.seasonal.media.map(mapMediaToCard),
-      season,
-      seasonYear,
+      collections: {
+        featured: featured
+          ? { ...localize(featured), description: localizeDescription(featured.description, records.get(featured.id)) }
+          : null,
+        trending: trending.map(localize),
+        topRated: topRated.map(localize),
+        seasonal: seasonal.map(localize),
+        season,
+        seasonYear,
+      },
+      complete,
     };
   });
 
-  if (result.ok) cacheLife("hours");
-  else cacheLife("seconds");
-  return result;
+  // Без русских данных (Shikimori или хранилище не ответили) — кэш на минуты, чтобы скоро повторить.
+  if (!result.ok) cacheLife("seconds");
+  else if (result.data.complete) cacheLife("hours");
+  else cacheLife("minutes");
+  return result.ok ? { ok: true, data: result.data.collections } : result;
 }
 
 export async function searchAnime(filters: CatalogFilters, page: number): Promise<AniListResult<AnimePage>> {
@@ -75,17 +100,40 @@ export async function searchAnime(filters: CatalogFilters, page: number): Promis
   cacheTag("anilist", "anilist:catalog");
 
   const result = await settle(async () => {
-    const data = await anilistRequest(CATALOG_PAGE_QUERY, toCatalogVariables(filters, page));
-    return {
-      items: data.Page.media.map(mapMediaToCard),
-      page: data.Page.pageInfo.currentPage ?? page,
-      hasNextPage: data.Page.pageInfo.hasNextPage ?? false,
-    };
+    const found = await findPage(filters, page);
+    const { items, complete } = await localizeCards(found.items);
+    return { page: { ...found, items }, complete };
   });
 
-  if (result.ok) cacheLife("hours");
-  else cacheLife("seconds");
-  return result;
+  if (!result.ok) cacheLife("seconds");
+  else if (result.data.complete) cacheLife("hours");
+  else cacheLife("minutes");
+  return result.ok ? { ok: true, data: result.data.page } : result;
+}
+
+/**
+ * Страница каталога без локализации. Запрос на кириллице ищется через Shikimori (MAL id → AniList);
+ * если Shikimori недоступен — обычным поиском AniList (он находит русские синонимы).
+ */
+async function findPage(filters: CatalogFilters, page: number): Promise<AnimePage> {
+  if (filters.q && hasCyrillic(filters.q)) {
+    const malIds = await searchShikimoriMalIds(filters.q).catch((error: unknown) => {
+      console.error("[shikimori] поиск недоступен", error);
+      return null;
+    });
+    if (malIds?.length === 0) return { items: [], page, hasNextPage: false };
+    if (malIds) {
+      const data = await anilistRequest(CATALOG_PAGE_QUERY, toMalIdVariables(filters, malIds));
+      return paginateMalIdResults(data.Page.media.map(mapMediaToCard), malIds, filters, page);
+    }
+  }
+
+  const data = await anilistRequest(CATALOG_PAGE_QUERY, toCatalogVariables(filters, page));
+  return {
+    items: data.Page.media.map(mapMediaToCard),
+    page: data.Page.pageInfo.currentPage ?? page,
+    hasNextPage: data.Page.pageInfo.hasNextPage ?? false,
+  };
 }
 
 export async function getGenres(): Promise<AniListResult<string[]>> {
@@ -121,3 +169,27 @@ export async function getAnimeById(id: number): Promise<AniListResult<AnimeDetai
   else cacheLife("seconds");
   return result;
 }
+
+/**
+ * Тайтл с русским названием и описанием. Данные AniList — из кэша, перевод — из хранилища при каждом
+ * показе (дёшево), поэтому готовый машинный перевод появляется сразу, без ожидания кэша.
+ * React cache: generateMetadata и страница в одном запросе делят результат.
+ */
+export const getLocalizedAnimeById = cache(async (id: number): Promise<AniListResult<AnimeDetails>> => {
+  const result = await getAnimeById(id);
+  if (!result.ok) return result;
+
+  const anime = result.data;
+  const { records } = await loadLocalizations([anime]);
+  const record = records.get(anime.id);
+  const localized = resolveTitles(anime, record);
+  // Русские синонимы Shikimori — первыми в «Других названиях». Прежнее основное название (например,
+  // русский синоним AniList) тоже остаётся среди них, если его заменило название Shikimori.
+  const synonyms = [...new Set([...(record?.synonymsRu ?? []), anime.title, ...anime.synonyms])].filter(
+    (synonym) => synonym !== localized.title && synonym !== localized.altTitle,
+  );
+  return {
+    ok: true,
+    data: { ...localized, synonyms, description: localizeDescription(anime.description, record) },
+  };
+});

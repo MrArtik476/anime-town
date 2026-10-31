@@ -1,5 +1,6 @@
 import type { AnimeDetails } from "@/types/anime";
 
+import { AnimeDescription } from "./anime-description";
 import { DetailsFacts } from "./details-facts";
 import { DetailsHero } from "./details-hero";
 import { DetailsRelations } from "./details-relations";
@@ -15,14 +16,7 @@ export function AnimeDetailsView({ anime }: { anime: AnimeDetails }) {
             <h2 id="description-title" className="font-heading text-xl font-semibold tracking-tight">
               Описание
             </h2>
-            {anime.description ? (
-              <>
-                <p className="mt-4 max-w-3xl leading-relaxed whitespace-pre-line text-foreground/90">{anime.description}</p>
-                <p className="mt-3 text-xs text-muted-foreground">Описание предоставлено AniList (на языке оригинала).</p>
-              </>
-            ) : (
-              <p className="mt-4 text-muted-foreground">Описание пока не добавлено.</p>
-            )}
+            <AnimeDescription description={anime.description} />
           </section>
 
           {anime.synonyms.length > 0 && (
