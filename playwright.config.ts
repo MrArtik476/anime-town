@@ -10,8 +10,10 @@ const isCI = !!process.env.CI;
  * - мок GraphQL (tests/mock-anilist) вместо graphql.anilist.co — тесты не зависят от сети и лимитов;
  * - мок Shikimori и переводчика (tests/mock-shikimori) — русские названия, описания и машинный перевод;
  *   переводы хранятся в памяти процесса (Supabase в E2E не используется);
- * - ANIME_TOWN_E2E=1 — отдельная папка сборки .next-e2e и картинки без оптимизатора,
- *   чтобы Playwright подменял обложки CDN (tests/e2e/fixtures.ts).
+ * - ANIME_TOWN_E2E=1 — отдельная папка сборки .next-e2e;
+ * - обложки AniList и в production грузятся браузером напрямую (unoptimized), поэтому Playwright
+ *   подменяет их ответы без сети (tests/e2e/fixtures.ts);
+ * - лимит каталога считается по IP — фикстура даёт каждому тесту свой x-forwarded-for.
  */
 export default defineConfig({
   testDir: "tests/e2e",

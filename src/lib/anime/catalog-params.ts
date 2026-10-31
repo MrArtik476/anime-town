@@ -14,11 +14,12 @@ export const CATALOG_PAGE_SIZE = 24;
 export const MIN_CATALOG_YEAR = 1960;
 export const MAX_SEARCH_LENGTH = 100;
 
-export const SORT_OPTIONS = ["popularity", "score", "newest", "episodes", "relevance"] as const;
+export const SORT_OPTIONS = ["popularity", "trending", "score", "newest", "episodes", "relevance"] as const;
 export type CatalogSort = (typeof SORT_OPTIONS)[number];
 
 export const SORT_LABELS: Record<CatalogSort, string> = {
   popularity: "По популярности",
+  trending: "В тренде",
   score: "По рейтингу",
   newest: "Сначала новые",
   episodes: "По числу серий",
@@ -27,6 +28,7 @@ export const SORT_LABELS: Record<CatalogSort, string> = {
 
 const SORT_TO_ANILIST: Record<CatalogSort, MediaSort[]> = {
   popularity: ["POPULARITY_DESC"],
+  trending: ["TRENDING_DESC", "POPULARITY_DESC"],
   score: ["SCORE_DESC", "POPULARITY_DESC"],
   newest: ["START_DATE_DESC", "POPULARITY_DESC"],
   episodes: ["EPISODES_DESC", "POPULARITY_DESC"],

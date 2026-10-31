@@ -4,6 +4,7 @@ import Link from "next/link";
 import { PosterImage } from "@/components/anime/poster-image";
 import { ScoreBadge } from "@/components/anime/score-badge";
 import { FadeIn } from "@/components/motion/fade-in";
+import { isAniListImage } from "@/lib/anilist/images";
 import { catalogHref, EMPTY_FILTERS } from "@/lib/anime/catalog-params";
 import { formatEpisodes, formatFormat, formatGenre, formatNumber, formatSeason, formatStatus } from "@/lib/anime/format";
 import type { AnimeDetails } from "@/types/anime";
@@ -24,7 +25,15 @@ export function DetailsHero({ anime }: { anime: AnimeDetails }) {
     <section className="relative isolate">
       <div aria-hidden className="absolute inset-x-0 top-0 -z-10 h-56 overflow-hidden sm:h-72 lg:h-80">
         {anime.bannerUrl ? (
-          <Image src={anime.bannerUrl} alt="" fill priority sizes="100vw" className="object-cover opacity-50" />
+          <Image
+            src={anime.bannerUrl}
+            alt=""
+            fill
+            priority
+            sizes="100vw"
+            unoptimized={isAniListImage(anime.bannerUrl)}
+            className="object-cover opacity-50"
+          />
         ) : (
           <div
             className="size-full opacity-35"

@@ -16,7 +16,7 @@ import type { MediaSeason } from "@/lib/anilist/types";
 import type { AnimeCard, AnimeDetails, AnimePage, HomeCollections } from "@/types/anime";
 
 import { anilistRequest } from "./client";
-import { AniListError, type AniListErrorCode, isAniListError, toErrorCode } from "./errors";
+import { AniListError, type DataErrorCode, isAniListError, toErrorCode } from "./errors";
 import {
   ANIME_DETAILS_QUERY,
   CATALOG_PAGE_QUERY,
@@ -30,7 +30,7 @@ import {
 // Результат — сериализуемый объект { ok, data | error }: так код ошибки переживает границу кэша,
 // а неудача кэшируется лишь на секунды (профиль `seconds`) и не долбит AniList повторами.
 
-export type AniListFailure = { code: AniListErrorCode; retryAfter: number | null };
+export type AniListFailure = { code: DataErrorCode; retryAfter: number | null };
 export type AniListResult<T> = { ok: true; data: T } | { ok: false; error: AniListFailure };
 
 async function settle<T>(work: () => Promise<T>): Promise<AniListResult<T>> {

@@ -85,7 +85,13 @@ export function CatalogResults({ filters, initial, isPending, onReset }: Catalog
 
       <div className="mt-10 flex flex-col items-center gap-4">
         {loadError && (
-          <DataError code={loadError.code} onRetry={loadMore} compact className="w-full max-w-lg" />
+          <DataError
+            code={loadError.code}
+            retryAfter={loadError.retryAfter}
+            onRetry={loadMore}
+            compact
+            className="w-full max-w-lg"
+          />
         )}
         {hasNextPage && !loadError && (
           <Button variant="outline" size="lg" onClick={loadMore} disabled={loadingMore || isPending} className="h-11 min-w-48 px-6">

@@ -2,10 +2,15 @@ import { AniListError } from "./errors";
 import type { GraphQLDocument } from "./queries";
 
 const DEFAULT_ENDPOINT = "https://graphql.anilist.co";
+// Бюджет ожидания одного вызова: попытка + пауза + повтор ≤ 5 + 2 + 5 = 12 с (MAX_WAIT_MS).
+// Дольше пользователь ждать не должен — лучше показать ошибку с кнопкой «Повторить».
+export const REQUEST_TIMEOUT_MS = 5_000;
+export const DEFAULT_RETRIES = 1;
 /** Ждать Retry-After дольше этого нет смысла — пользователь увидит сообщение и сможет повторить. */
-const MAX_RETRY_AFTER_SECONDS = 5;
-const DEFAULT_RETRIES = 2;
-const REQUEST_TIMEOUT_MS = 10_000;
+export const MAX_RETRY_AFTER_SECONDS = 2;
+const RETRY_DELAY_MS = 500;
+export const MAX_WAIT_MS =
+  REQUEST_TIMEOUT_MS * (DEFAULT_RETRIES + 1) + DEFAULT_RETRIES * Math.max(RETRY_DELAY_MS, MAX_RETRY_AFTER_SECONDS * 1000);
 
 type GraphQLResponse<TData> = {
   data?: TData | null;
@@ -68,7 +73,7 @@ export async function anilistRequest<TData, TVariables extends Record<string, un
       });
     } catch (cause) {
       if (canRetry) {
-        await sleep(500 * 2 ** attempt);
+        await sleep(RETRY_DELAY_MS * 2 ** attempt);
         continue;
       }
       throw new AniListError("NETWORK", "AniList недоступен", { cause });
@@ -88,7 +93,7 @@ export async function anilistRequest<TData, TVariables extends Record<string, un
 
     if (response.status >= 500) {
       if (canRetry) {
-        await sleep(500 * 2 ** attempt);
+        await sleep(RETRY_DELAY_MS * 2 ** attempt);
         continue;
       }
       throw new AniListError("NETWORK", `AniList ответил ${response.status}`, {

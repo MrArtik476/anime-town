@@ -36,7 +36,7 @@ export async function HomeContent() {
         id="trending"
         title="Популярное сейчас"
         subtitle="Что смотрят прямо сейчас"
-        href={catalogHref({ ...EMPTY_FILTERS, sort: "popularity" })}
+        href={catalogHref({ ...EMPTY_FILTERS, sort: "trending" })}
         items={trending.filter((anime) => anime.id !== featured?.id)}
       />
       <AnimeRow

@@ -114,7 +114,13 @@ export const MEDIA = [
     title: { romaji: "Kowareta E", english: "Broken Picture", native: null },
     coverImage: { extraLarge: `${CDN}/cover/large/broken.jpg`, large: `${CDN}/cover/medium/broken.jpg`, color: "#6b3a3a" },
   }),
-  ...Array.from({ length: 26 }, (_, index) => media(index + 5)),
+  // Резкий рост интереса: первый «В тренде», но последний по популярности — сортировки различимы.
+  media(5, {
+    title: { romaji: "Ryuusei Sprint", english: "Meteor Sprint", native: "流星スプリント" },
+    trending: 2000,
+    popularity: 1000,
+  }),
+  ...Array.from({ length: 25 }, (_, index) => media(index + 6)),
 ];
 
 

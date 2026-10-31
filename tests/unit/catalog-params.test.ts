@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { sortOptions } from "@/components/catalog/filter-options";
 import {
   catalogHref,
   countActiveFilters,
@@ -75,6 +76,14 @@ describe("сортировка", () => {
     expect(toCatalogVariables({ ...EMPTY_FILTERS, sort: "episodes" }, 1).sort).toEqual(["EPISODES_DESC", "POPULARITY_DESC"]);
     expect(toCatalogVariables(EMPTY_FILTERS, 1).sort).toEqual(["POPULARITY_DESC"]);
     expect(toCatalogVariables({ ...EMPTY_FILTERS, q: "x" }, 1).sort).toEqual(["SEARCH_MATCH", "POPULARITY_DESC"]);
+  });
+
+  it("«В тренде»: читается из URL и превращается в TRENDING_DESC", () => {
+    const filters = parseCatalogParams(new URLSearchParams("sort=trending"), MAX_YEAR);
+    expect(filters.sort).toBe("trending");
+    expect(catalogHref(filters)).toBe("/catalog?sort=trending");
+    expect(toCatalogVariables(filters, 1).sort).toEqual(["TRENDING_DESC", "POPULARITY_DESC"]);
+    expect(sortOptions(false).map((option) => option.label)).toContain("В тренде");
   });
 });
 

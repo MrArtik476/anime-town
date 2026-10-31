@@ -3,6 +3,7 @@
 import Image from "next/image";
 import { useState } from "react";
 
+import { isAniListImage } from "@/lib/anilist/images";
 import { cn } from "@/lib/utils";
 
 type PosterImageProps = {
@@ -32,6 +33,7 @@ export function PosterImage({ src, alt, sizes, color, priority, className }: Pos
           fill
           sizes={sizes}
           priority={priority}
+          unoptimized={isAniListImage(src)}
           className="object-cover"
           onError={() => setFailed(true)}
         />
