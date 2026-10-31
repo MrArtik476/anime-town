@@ -25,12 +25,15 @@
 | react / react-dom | 19.3.0 | 19.3.0 | |
 | typescript | **6.0.3** | `~6.0.3` | typescript-eslint 8.72 требует `<6.1.0` — поэтому `~`, не `^`; TS 7 не ставить |
 | tailwindcss | 4.3.3 | ^4 | подключён через `@tailwindcss/turbopack` (без PostCSS) |
-| shadcn/ui | CLI 4.23.0 | ^4.23.0 (dev) | стиль `base-nova` на Base UI (`@base-ui/react` 1.9.0); `cn` 0.5.1, `class-variance-authority` 0.7.1, `lucide-react` 1.66.0, `tw-animate-css` 1.4.0 |
+| shadcn/ui | CLI 4.23.0 | ^4.23.0 (dev) | стиль `base-nova` на Base UI (`@base-ui/react` 1.9.0); компоненты button, input, sheet, skeleton; `cn` 0.5.1, `class-variance-authority` 0.7.1, `lucide-react` 1.66.0, `tw-animate-css` 1.4.0 |
 | motion | 14.9.0 | ^14.9.0 | импорт `motion/react` |
 | @supabase/supabase-js | 2.118.0 | ^2.118.0 | |
 | @supabase/ssr | 0.12.7 | ^0.12.7 | cookies-сессии для App Router |
 | hls.js | 1.7.4 | ^1.7.4 | |
-| @playwright/test | 1.64.1 | ^1.64.1 (dev) | браузеры для e2e ещё не установлены (`npx playwright install chromium`) |
+| @playwright/test | 1.64.1 | ^1.64.1 (dev) | E2E; браузер: `npx playwright install chromium` |
+| vitest | 4.1.12 | ^4.1.12 (dev) | unit-тесты; v5 требует `@types/node` ≥ 22 |
+| jsdom | 30.1.3 | ^30 (dev) | окружение для тестов компонентов |
+| @testing-library/react / dom / user-event | 16.3.3 / 10.4.2 / 14.6.8 | dev | тесты компонентов (React 19) |
 | eslint | **9.39.5** | ^9 (dev) | + eslint-config-next 16.4.3. ESLint 10 не ставить: плагины `import`, `jsx-a11y`, `react` внутри eslint-config-next поддерживают только ≤ 9 |
 | supabase (CLI) | — | — | не установлен; ставится вместе с Supabase-проектом: `npm i -D supabase` |
 
@@ -56,30 +59,51 @@ npm i -D @playwright/test
 `AGENTS.md`: блок между `<!-- BEGIN:nextjs-agent-rules -->` и `<!-- END:nextjs-agent-rules -->` создаёт и поддерживает `next dev` (Next.js ≥ 16.3) — он направляет агентов к документации установленной версии в `node_modules/next/dist/docs/`. Файл коммитится, блок вручную не редактируется. Отключение — `agentRules: false` в `next.config.ts`.
 
 ## Скрипты package.json
-Есть сейчас:
 ```json
 "dev": "next dev",
 "build": "next build",
 "start": "next start",
 "lint": "eslint",
-"typecheck": "next typegen && tsc --noEmit"
+"typecheck": "next typegen && tsc --noEmit",
+"test": "vitest run",
+"test:watch": "vitest",
+"test:e2e": "playwright test"
 ```
 `typecheck` сначала генерирует типы маршрутов (`LayoutProps`, `PageProps` и т. п. в `.next/types`), иначе `tsc` без предварительного `build` падает с `Cannot find name 'LayoutProps'`.
 
-Добавить вместе с соответствующими задачами:
+Добавить вместе с Supabase-проектом:
 ```json
-"test": "node --test",
-"test:e2e": "playwright test",
 "db:types": "supabase gen types typescript --linked > src/types/database.ts"
 ```
 `db:types` берёт проект из `supabase link` (один раз: `npx supabase login` → `npx supabase link --project-ref <ref>`), поэтому работает и в cmd.exe на Windows, где npm-скрипты не подставляют `$VAR`.
-Для `test` можно выбрать Vitest — тогда добавить его в таблицу версий.
+
+## Тестирование
+| Уровень | Команда | Что проверяет |
+|---|---|---|
+| Unit (Vitest 4 + jsdom + Testing Library) | `npm test` | `tests/unit/`: клиент AniList (повторы, 429, 404, сбои), маппинг и форматирование, параметры каталога и сортировка, debounce, компоненты (карточка, постер, поиск, фильтры, чипсы, «Загрузить ещё») |
+| E2E (Playwright, Chromium) | `npm run test:e2e` | `tests/e2e/`: главная, каталог (поиск, фильтры, сортировка, URL, пагинация, ошибки), страница аниме (связи, заглушки, 404, сбой), API, адаптивность на 1440×900, 1280×800, 768×1024, 390×844, 360×800 |
+
+**Как устроены E2E.** `playwright.config.ts` поднимает два сервера:
+1. `tests/mock-anilist/server.mjs` — мок AniList GraphQL на `127.0.0.1:4010` с фикстурами (`fixtures.mjs`). Управляемые сценарии: поиск `__error__` → 500, `__ratelimit__` → 429 c `Retry-After: 60`, тайтл `500500` → 500, неизвестный ID → 404. Мок отклоняет запросы с `null`-переменными — так проверяется контракт клиента.
+2. Production-сборку приложения на `127.0.0.1:3100` с `ANILIST_GRAPHQL_URL` на мок и `ANIME_TOWN_E2E=1` (отдельная папка `.next-e2e`, картинки без оптимизатора — обложки CDN подменяет `tests/e2e/fixtures.ts`).
+
+Тесты не зависят от доступности и лимитов AniList. Скриншоты адаптивности — `test-results/screenshots/` (не коммитятся). Первый запуск: `npx playwright install chromium`.
 
 ## Переменные окружения
-`.env.example` → копия в `.env.local`. Supabase-клиенты (`src/lib/supabase/`) создаются только при наличии реальных `NEXT_PUBLIC_SUPABASE_URL` и `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`; значения-заглушки из `.env.example` считаются отсутствующими, и вызов клиента выбрасывает понятную ошибку. Без `.env.local` приложение собирается и работает — Supabase на главной пока не используется.
+`.env.example` → копия в `.env.local`.
+- `ANILIST_GRAPHQL_URL` — адрес AniList GraphQL; по умолчанию `https://graphql.anilist.co`, ключ не нужен. Переопределяется только для тестов.
+- Supabase-клиенты (`src/lib/supabase/`) создаются только при наличии реальных `NEXT_PUBLIC_SUPABASE_URL` и `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`; значения-заглушки считаются отсутствующими. Каталог Supabase не использует — без `.env.local` всё работает.
+
+## Каталог: известные ограничения
+- **Описания на английском** — AniList не хранит русские описания. Русское название берётся из синонимов, если оно там есть (не для всех тайтлов).
+- **Лимит AniList** — 30 запросов в минуту на сервер (на 31.10.2026, обычно 90). Кэш снимает нагрузку, но при холодном кэше и всплеске трафика пользователь может увидеть «Слишком много запросов» с кнопкой «Повторить».
+- **Кэш `use cache` в памяти процесса.** На Vercel (serverless) он не общий между экземплярами; для продакшена — `use cache: remote` или собственная таблица `anime` (этап 2 после Supabase).
+- **HTTP-статус 404.** Страница «не найдено» приходит с кодом 200 и `noindex`: при потоковой отрисовке (Partial Prerender) заголовки уже отправлены. Это поведение Next.js 16.
+- **«Загрузить ещё» не сохраняется в URL** — после перезагрузки показывается первая страница с теми же фильтрами.
+- **Общее число результатов** не показывается: `pageInfo.total` у AniList ненадёжен, используется `hasNextPage`.
 
 ## .gitignore
-Объединены правила проекта и шаблона Next.js: `node_modules/`, `.next/`, `.env*` (кроме `.env.example`), `*.pem`, отчёты Playwright, `.playwright-mcp/`, временные файлы Supabase, `.mcp.json`, `.claude/settings.local.json`. При добавлении инструментов — дополнять.
+Объединены правила проекта и шаблона Next.js: `node_modules/`, `.next/`, `.next-e2e/`, `.env*` (кроме `.env.example`), `*.pem`, отчёты Playwright, `.playwright-mcp/`, временные файлы Supabase, `.mcp.json`, `.claude/settings.local.json`. При добавлении инструментов — дополнять.
 
 ## Ветки и коммиты
 - `main` — стабильная основная ветка (`origin/main`, первый коммит `dd5a3a7`). Напрямую в неё не коммитим и не пушим.
