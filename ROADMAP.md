@@ -10,8 +10,10 @@
 - [x] Документация в `Buld/`: CLAUDE.md, ARCHITECTURE.md, ROADMAP.md, DEVELOPMENT.md, `.env.example`, `.gitignore`
 - [x] Первый коммит `dd5a3a7` в `main`, push в `origin` (`github.com/MrArtik476/anime-town`, приватный); локальная `main` синхронизирована с `origin/main`
 - [x] Подготовка Git/GitHub завершена. Защита `main` средствами GitHub недоступна (GitHub Free, приватный репозиторий) — до её появления: ветки под задачи, Pull Request, проверка изменений перед слиянием, без force-push и удаления `main`
+- [x] Аудит окружения для Next.js, план инициализации в `Buld/` (см. DEVELOPMENT.md)
 - [ ] Vercel-коннектор
-- [ ] Проверка Playwright MCP (браузерные проверки)
+- [ ] Supabase-проект в организации «Anime Town» (после разрешения)
+- [x] Проверка Playwright MCP (браузерные проверки): браузер Chromium открывается, страница загружается и читается, 23 инструмента доступны
 
 ## Этап 1. Фундамент ← текущий
 - [x] Next.js 16.4 + React 19.3 + TypeScript 6.0 + Tailwind 4.3 + shadcn/ui, ESLint 9, скрипты `lint`/`typecheck`/`build`
