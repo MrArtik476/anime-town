@@ -37,23 +37,37 @@
 Пакеты вне этой таблицы и смена мажорных версий — только после подтверждения и записи в таблицу.
 
 ## Инициализация проекта (один раз)
+`create-next-app` нельзя запускать прямо в `Buld/`: он допускает в целевой папке только `.git`, `.gitignore`, `.claude` и ещё несколько служебных файлов, а `CLAUDE.md`, `ARCHITECTURE.md`, `DEVELOPMENT.md`, `ROADMAP.md`, `.env.example`, `.mcp.json` считает конфликтом и останавливается (флага `--force` нет). Поэтому — генерация во временную папку и перенос.
+
+Проверено пробной генерацией `create-next-app@16.4.3` (31.10.2026): шаблон создаёт `AGENTS.md`, `README.md`, `eslint.config.mjs`, `next.config.ts`, `next-env.d.ts`, `package.json`, `tsconfig.json`, `public/*`, `src/app/*` и `.gitignore`. С файлами в `Buld/` пересекается только `.gitignore`. `CLAUDE.md` шаблон не создаёт.
+
 ```bash
-npx create-next-app@latest . --ts --tailwind --eslint --app --src-dir --import-alias "@/*" --use-npm
-npm i -D typescript@6.0.3
+# 1. Генерация во временной папке вне репозитория
+npx create-next-app@16.4.3 anime-town-tmp --ts --tailwind --eslint --app --src-dir --import-alias "@/*" --use-npm --skip-install --disable-git --yes
+# 2. Перенос в Buld/ всего, кроме .gitignore (существующие файлы не перезаписываются)
+# 3. .gitignore — объединить вручную: наш файл + недостающие строки шаблона (/.pnp, .pnp.*, .yarn/*, /coverage, *.pem)
+# 4. Установка и закрепление версий из таблицы
+npm install
+npm i -D typescript@6.0.3   # шаблон ставит typescript ^5
+npm i -D eslint@10          # шаблон ставит eslint ^9; оставить 10, только если `npm run lint` проходит, иначе вернуть ^9 и поправить таблицу версий
 npx shadcn@latest init
+```
+Пакеты фич добавляются по мере появления фич, а не все сразу:
+```bash
 npm i motion @supabase/supabase-js @supabase/ssr hls.js
 npm i -D @playwright/test supabase && npx playwright install chromium
 ```
-Пакеты добавляются по мере появления фич, а не все сразу.
-`create-next-app` может отказаться работать в непустой папке (в `Buld/` уже лежат документация, `.claude/`, `.mcp.json`). В этом случае сгенерировать проект во временную папку и перенести файлы в `Buld/`, не перезаписывая существующие документы; конфликты (`.gitignore`, `README.md`) объединить вручную.
+
+`AGENTS.md`: блок между `<!-- BEGIN:nextjs-agent-rules -->` и `<!-- END:nextjs-agent-rules -->` создаёт и поддерживает `next dev` (Next.js ≥ 16.3) — он направляет агентов к документации установленной версии в `node_modules/next/dist/docs/`. Файл коммитится, блок вручную не редактируется; в `CLAUDE.md` добавить ссылку на `AGENTS.md`. Отключение — `agentRules: false` в `next.config.ts` или `--no-agents-md` при генерации.
 
 ## Скрипты package.json (добавить)
 ```json
 "typecheck": "tsc --noEmit",
 "test": "node --test",
 "test:e2e": "playwright test",
-"db:types": "supabase gen types typescript --project-id $SUPABASE_PROJECT_ID > src/types/database.ts"
+"db:types": "supabase gen types typescript --linked > src/types/database.ts"
 ```
+`db:types` берёт проект из `supabase link` (один раз: `npx supabase login` → `npx supabase link --project-ref <ref>`), поэтому работает и в cmd.exe на Windows, где npm-скрипты не подставляют `$VAR`.
 Для `test` можно выбрать Vitest — тогда добавить его в таблицу версий.
 
 ## .gitignore
