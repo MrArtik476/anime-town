@@ -6,6 +6,7 @@ import { PosterImage } from "@/components/anime/poster-image";
 import { ScoreBadge } from "@/components/anime/score-badge";
 import { FadeIn } from "@/components/motion/fade-in";
 import { buttonVariants } from "@/components/ui/button";
+import { isAniListImage } from "@/lib/anilist/images";
 import { formatEpisodes, formatGenre, truncate } from "@/lib/anime/format";
 import { cn } from "@/lib/utils";
 import type { FeaturedAnime as FeaturedAnimeData } from "@/types/anime";
@@ -18,7 +19,15 @@ export function FeaturedAnime({ anime }: { anime: FeaturedAnimeData }) {
     <section aria-labelledby="featured-title" className="relative isolate overflow-hidden border-b border-border/60">
       <div aria-hidden className="absolute inset-0 -z-10">
         {anime.bannerUrl ? (
-          <Image src={anime.bannerUrl} alt="" fill priority sizes="100vw" className="object-cover opacity-45" />
+          <Image
+            src={anime.bannerUrl}
+            alt=""
+            fill
+            priority
+            sizes="100vw"
+            unoptimized={isAniListImage(anime.bannerUrl)}
+            className="object-cover opacity-45"
+          />
         ) : (
           <div
             className="size-full opacity-40"

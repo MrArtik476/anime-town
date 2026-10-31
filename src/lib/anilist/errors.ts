@@ -27,14 +27,17 @@ export function isNotFoundError(error: unknown): boolean {
   return isAniListError(error) && error.code === "NOT_FOUND";
 }
 
-export const ERROR_MESSAGES: Record<AniListErrorCode, { title: string; description: string }> = {
+/** Коды ошибок для интерфейса: ошибки AniList и неверные параметры запроса к нашему API. */
+export type DataErrorCode = AniListErrorCode | "INVALID_PARAMS";
+
+export const ERROR_MESSAGES: Record<DataErrorCode, { title: string; description: string }> = {
   NOT_FOUND: {
     title: "Ничего не найдено",
     description: "Такого тайтла нет в базе AniList или он недоступен.",
   },
   RATE_LIMITED: {
     title: "Слишком много запросов",
-    description: "AniList временно ограничил запросы. Подождите минуту и попробуйте снова.",
+    description: "Запросов к каталогу стало слишком много. Подождите немного и попробуйте снова.",
   },
   NETWORK: {
     title: "AniList не отвечает",
@@ -43,6 +46,10 @@ export const ERROR_MESSAGES: Record<AniListErrorCode, { title: string; descripti
   BAD_RESPONSE: {
     title: "Не удалось загрузить данные",
     description: "Источник данных вернул неожиданный ответ. Попробуйте ещё раз чуть позже.",
+  },
+  INVALID_PARAMS: {
+    title: "Некорректный запрос",
+    description: "Параметры запроса заданы неверно. Откройте каталог заново.",
   },
 };
 

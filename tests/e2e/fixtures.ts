@@ -17,7 +17,21 @@ export async function routeImages(page: Page) {
 
 type Fixtures = { consoleErrors: string[] };
 
+let ipCounter = 0;
+
+/**
+ * Каждому тесту — свой адрес клиента: proxy.ts ограничивает запросы каталога по IP (x-forwarded-for),
+ * и без этого параллельные тесты с одного 127.0.0.1 упирались бы в общий лимит.
+ */
+export function uniqueClientIp(workerIndex: number): string {
+  ipCounter++;
+  return `10.${workerIndex % 256}.${(ipCounter >> 8) % 256}.${ipCounter % 256}`;
+}
+
 export const test = base.extend<Fixtures>({
+  extraHTTPHeaders: async ({ extraHTTPHeaders }, provide, testInfo) => {
+    await provide({ ...extraHTTPHeaders, "x-forwarded-for": uniqueClientIp(testInfo.workerIndex) });
+  },
   consoleErrors: async ({ page }, provide) => {
     const errors: string[] = [];
     page.on("console", (message) => {

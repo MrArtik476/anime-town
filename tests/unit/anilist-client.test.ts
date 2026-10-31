@@ -1,6 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { anilistRequest, compactVariables } from "@/lib/anilist/client";
+import {
+  anilistRequest,
+  compactVariables,
+  DEFAULT_RETRIES,
+  MAX_WAIT_MS,
+  REQUEST_TIMEOUT_MS,
+} from "@/lib/anilist/client";
 import { AniListError } from "@/lib/anilist/errors";
 import type { GraphQLDocument } from "@/lib/anilist/queries";
 
@@ -9,10 +15,10 @@ const QUERY = "query Test { Media { id } }" as GraphQLDocument<{ Media: { id: nu
 const jsonResponse = (body: unknown, status = 200, headers: Record<string, string> = {}) =>
   new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json", ...headers } });
 
-const setup = (...responses: (Response | Error)[]) => {
+const setup = (...responses: (Response | Error | DOMException)[]) => {
   const fetchImpl = vi.fn<typeof fetch>();
   for (const response of responses) {
-    if (response instanceof Error) fetchImpl.mockRejectedValueOnce(response);
+    if (!(response instanceof Response)) fetchImpl.mockRejectedValueOnce(response);
     else fetchImpl.mockResolvedValueOnce(response);
   }
   const sleep = vi.fn(async () => {});
@@ -72,12 +78,43 @@ describe("anilistRequest", () => {
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
-  it("повторяет 5xx с нарастающей паузой и после исчерпания попыток даёт NETWORK", async () => {
-    const { fetchImpl, sleep, options } = setup(jsonResponse({}, 502), jsonResponse({}, 503), jsonResponse({}, 500));
+  it("повторяет 5xx один раз и после этого даёт NETWORK", async () => {
+    const { fetchImpl, sleep, options } = setup(jsonResponse({}, 502), jsonResponse({}, 503));
 
-    await expect(anilistRequest(QUERY, {}, options)).rejects.toMatchObject({ code: "NETWORK", status: 500 });
-    expect(fetchImpl).toHaveBeenCalledTimes(3);
-    expect(sleep.mock.calls).toEqual([[500], [1000]]);
+    await expect(anilistRequest(QUERY, {}, options)).rejects.toMatchObject({ code: "NETWORK", status: 503 });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(sleep.mock.calls).toEqual([[500]]);
+  });
+
+  it("таймаут запроса 5 с, один повтор: худший случай ожидания не больше 12 с", () => {
+    expect(REQUEST_TIMEOUT_MS).toBe(5000);
+    expect(DEFAULT_RETRIES).toBe(1);
+    expect(MAX_WAIT_MS).toBeLessThanOrEqual(12_000);
+  });
+
+  it("передаёт в fetch сигнал таймаута", async () => {
+    const { fetchImpl, options } = setup(jsonResponse({ data: { Media: { id: 1 } } }));
+
+    await anilistRequest(QUERY, {}, options);
+
+    expect(fetchImpl.mock.calls[0][1]?.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it("после двух таймаутов подряд — NETWORK, всего две попытки", async () => {
+    const timeout = () => new DOMException("The operation was aborted due to timeout", "TimeoutError");
+    const { fetchImpl, sleep, options } = setup(timeout(), timeout());
+
+    await expect(anilistRequest(QUERY, {}, options)).rejects.toMatchObject({ code: "NETWORK" });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(sleep.mock.calls).toEqual([[500]]);
+  });
+
+  it("Retry-After больше 2 с не ждёт — сразу RATE_LIMITED", async () => {
+    const { fetchImpl, sleep, options } = setup(jsonResponse({}, 429, { "Retry-After": "3" }));
+
+    await expect(anilistRequest(QUERY, {}, options)).rejects.toMatchObject({ code: "RATE_LIMITED", retryAfter: 3 });
+    expect(sleep).not.toHaveBeenCalled();
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
   it("восстанавливается после сетевого сбоя", async () => {

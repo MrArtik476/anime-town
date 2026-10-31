@@ -62,6 +62,24 @@ describe("format", () => {
     expect(cleanDescription(null)).toBeNull();
   });
 
+  it("декодирует числовые и именованные HTML-сущности", () => {
+    expect(cleanDescription("It&#39;s &#x27;fine&#x27; &hellip; 1&ndash;2 &laquo;да&raquo;")).toBe("It's 'fine' … 1–2 «да»");
+    expect(cleanDescription("&#8212;&#X2014;")).toBe("——");
+    // Один проход: экранированная сущность остаётся текстом, а не превращается в тег.
+    expect(cleanDescription("&amp;lt;b&amp;gt;")).toBe("&lt;b&gt;");
+    expect(cleanDescription("&unknown; &#0;")).toBe("&unknown; &#0;");
+  });
+
+  it("убирает хвосты-атрибуции источника", () => {
+    expect(cleanDescription("Story text.<br><br>(Source: Crunchyroll)")).toBe("Story text.");
+    expect(cleanDescription("Story text.\n\n<i>(Source: ANN, edited)</i>")).toBe("Story text.");
+    expect(cleanDescription("Story text. [Written by MAL Rewrite]")).toBe("Story text.");
+    expect(cleanDescription("Line one (Source: X)\nLine two")).toBe("Line one\nLine two");
+    // Скобки в середине текста — часть сюжета, их не трогаем.
+    expect(cleanDescription("A hero (source of hope) rises.")).toBe("A hero (source of hope) rises.");
+    expect(cleanDescription("(Source: Funimation)")).toBeNull();
+  });
+
   it("обрезает по словам", () => {
     expect(truncate("короткий", 20)).toBe("короткий");
     expect(truncate("один два три четыре", 12)).toBe("один два…");

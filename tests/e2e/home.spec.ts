@@ -14,6 +14,8 @@ test.describe("Главная", () => {
     }
     expect(await page.getByTestId("anime-card").count()).toBeGreaterThan(20);
 
+    const popular = page.locator("section", { has: page.getByRole("heading", { name: "Популярное сейчас" }) });
+    await expect(popular.getByRole("link", { name: "Смотреть все" })).toHaveAttribute("href", "/catalog?sort=trending");
     const topRated = page.locator("section", { has: page.getByRole("heading", { name: "Высокий рейтинг" }) });
     await expect(topRated.getByRole("link", { name: "Смотреть все" })).toHaveAttribute("href", "/catalog?sort=score");
 
@@ -21,6 +23,16 @@ test.describe("Главная", () => {
     await expect(page).toHaveURL(/\/catalog$/);
     await expect(page.getByRole("heading", { level: 1, name: "Каталог аниме" })).toBeVisible();
     expect(consoleErrors).toEqual([]);
+  });
+
+  test("«Смотреть все» у «Популярное сейчас» открывает каталог «В тренде»", async ({ page }) => {
+    await page.goto("/");
+    const popular = page.locator("section", { has: page.getByRole("heading", { name: "Популярное сейчас" }) });
+    await popular.getByRole("link", { name: "Смотреть все" }).click();
+
+    await expect(page).toHaveURL(/\/catalog\?sort=trending$/);
+    await expect(page.getByRole("complementary", { name: "Фильтры каталога" }).getByLabel("Сортировка")).toHaveValue("trending");
+    await expect(page.getByTestId("anime-card").first()).toContainText("Meteor Sprint");
   });
 
   test("карточка открывает страницу тайтла", async ({ page }) => {

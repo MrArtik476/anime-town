@@ -33,7 +33,7 @@ Skills меняются в `Buld/.claude/skills/`, после чего копи�
 Next.js 16 отличается от того, что в памяти модели: перед кодом на Next.js читай актуальные гайды в `node_modules/next/dist/docs/` и/или Context7. В частности, `middleware.ts` переименован в `proxy.ts`. Блок в `AGENTS.md` поддерживает `next dev` — не редактировать вручную.
 
 ## Структура кода
-`src/app` — маршруты · `src/components/{ui,layout,anime,home,catalog,anime-details,motion,providers}` — компоненты (ui — только shadcn) · `src/config` — конфигурация сайта · `src/hooks` — хуки · `src/lib` — `anilist/` (клиент и запросы AniList), `anime/` (маппинг, форматирование, параметры каталога), `supabase/`, `utils.ts` · `src/types` — типы (в т. ч. `database.ts`). Подробно — ARCHITECTURE.md §2.
+`src/app` — маршруты · `src/components/{ui,layout,anime,home,catalog,anime-details,motion,providers}` — компоненты (ui — только shadcn) · `src/config` — конфигурация сайта · `src/hooks` — хуки · `src/lib` — `anilist/` (клиент и запросы AniList), `anime/` (маппинг, форматирование, параметры каталога), `rate-limit/` (лимит запросов каталога по IP, используется в `src/proxy.ts`), `supabase/`, `utils.ts` · `src/types` — типы (в т. ч. `database.ts`). Подробно — ARCHITECTURE.md §2.
 
 ## Обязательные правила
 1. Перед использованием API библиотеки — свериться с актуальной документацией через **Context7**, не полагаться на память.

@@ -57,6 +57,7 @@ export function MobileFilters({ filters, genres, maxYear, onChange, onReset }: M
             maxYear={maxYear}
             onChange={onChange}
             idPrefix="mobile-filter"
+            showSort={false}
           />
         </div>
         <SheetFooter className="flex-row gap-3 border-t border-border/60">
