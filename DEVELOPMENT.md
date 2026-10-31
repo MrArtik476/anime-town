@@ -60,14 +60,19 @@ npm i -D @playwright/test supabase && npx playwright install chromium
 Создан до первого коммита: `node_modules/`, `.next/`, `.env*` (кроме `.env.example`), отчёты Playwright, временные файлы Supabase и т. д. При добавлении инструментов — дополнять.
 
 ## Ветки и коммиты
-- `main` — стабильная ветка, после настройки защиты изменения только через PR.
-- Первый коммит (документация, `.claude/`, `.gitignore`) — прямо в `main`, один раз, после подтверждения.
-- Фичи — `feat/<name>`, исправления — `fix/<name>`, прочее — `chore/<name>` / `docs/<name>` от `main`, PR обратно.
-- Conventional Commits. PR сливается только при зелёных lint + typecheck + build + e2e.
-- Push и слияние PR — после подтверждения пользователя (см. CLAUDE.md → «Автономная разработка»).
+- `main` — стабильная основная ветка (`origin/main`, первый коммит `dd5a3a7`). Напрямую в неё не коммитим и не пушим.
+- Для каждой задачи — отдельная ветка от актуальной `main`: `feature/<name>`, `fix/<name>`, `docs/<name>` (служебное — `chore/<name>`).
+- Изменения предлагаются через Pull Request в `main`.
+- Перед слиянием проверяются изменения (diff PR) и результаты lint + typecheck + test + build + e2e.
+- Conventional Commits в сообщениях коммитов (`feat:`, `fix:`, `docs:`, `chore:` …).
+- Коммит, push и создание PR — после разрешения пользователя; слияние PR — только после отдельного разрешения пользователя (см. CLAUDE.md → «Автономная разработка»).
 
-## Защита main (настроить после первого push)
-GitHub → Settings → Branches → правило для `main`: require PR, require status checks (CI), запрет force-push и удаления.
+## Защита main
+Репозиторий `MrArtik476/anime-town` приватный, тариф GitHub Free — Branch Protection Rules для него недоступны. Поэтому правила ниже **организационные**: GitHub технически не блокирует прямые изменения в `main`, их соблюдение — ответственность каждого участника и Claude.
+- Работа только через ветки задач и Pull Request.
+- Не сливать PR без разрешения пользователя и без проверки изменений и тестов.
+- Не выполнять `git push --force` (в том числе `--force-with-lease`) в `main`.
+- Не удалять `main` ни локально, ни на GitHub.
 
 ## Секреты
 - Локально — `.env.local`; в облаке — Vercel Environment Variables и Supabase.
@@ -77,7 +82,7 @@ GitHub → Settings → Branches → правило для `main`: require PR, r
 
 ## Рабочий цикл с Claude
 1. Задача → `superpowers:brainstorming` → план (`writing-plans`).
-2. Ветка `feat/<name>`, реализация с нужным skill проекта (см. CLAUDE.md).
-3. `anime-quality-check` → коммит.
+2. Ветка `feature/<name>` (или `fix/`, `docs/`) от `main`, реализация с нужным skill проекта (см. CLAUDE.md).
+3. `anime-quality-check` → показать изменения и результаты проверок → коммит после разрешения.
 4. Запись в Obsidian: Development Log, Dashboard, при необходимости — ошибки/решения.
-5. Отчёт пользователю → push / PR после подтверждения.
+5. Отчёт пользователю → push ветки и PR после разрешения → слияние PR только после отдельного разрешения.
