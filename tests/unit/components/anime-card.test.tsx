@@ -7,6 +7,7 @@ import type { AnimeCard as AnimeCardData } from "@/types/anime";
 
 const anime: AnimeCardData = {
   id: 21,
+  malId: null,
   title: "Ван-Пис",
   altTitle: "ONE PIECE",
   coverUrl: "https://s4.anilist.co/cover.jpg",

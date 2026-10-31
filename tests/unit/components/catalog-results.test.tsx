@@ -7,6 +7,7 @@ import type { AnimeCard } from "@/types/anime";
 
 const anime = (id: number): AnimeCard => ({
   id,
+  malId: null,
   title: `Тайтл ${id}`,
   altTitle: null,
   coverUrl: null,

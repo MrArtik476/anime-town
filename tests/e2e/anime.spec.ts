@@ -7,7 +7,7 @@ test.describe("Страница аниме", () => {
     await expect(page).toHaveTitle("Звёздный город · Anime Town");
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Звёздный город");
     await expect(page.getByText("Hoshi no Machi · Star Town · 星の町")).toBeVisible();
-    await expect(page.getByText("Описание тестового тайтла 1.")).toBeVisible();
+    await expect(page.getByText("Хоси охраняет звёздный город от тьмы.")).toBeVisible();
 
     const facts = page.getByRole("region", { name: "Информация" });
     for (const [label, value] of [

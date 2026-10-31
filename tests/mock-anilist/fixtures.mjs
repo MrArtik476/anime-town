@@ -18,6 +18,8 @@ const media = (id, overrides = {}) => {
   const year = 2015 + (id % 12);
   return {
     id,
+    // MAL id = id Shikimori (tests/mock-shikimori): 1000 + id.
+    idMal: 1000 + id,
     title: { romaji: `Tesuto Anime ${id}`, english: `Test Anime ${id}`, native: `テストアニメ${id}` },
     synonyms: [],
     coverImage: {
@@ -26,7 +28,7 @@ const media = (id, overrides = {}) => {
       color: "#3a4a6b",
     },
     bannerImage: null,
-    description: `Описание тестового тайтла ${id}.<br><br>Вторая строка &quot;с цитатой&quot;.`,
+    description: `Test anime ${id} plot summary.<br><br>Second line &quot;with a quote&quot;.`,
     format: FORMATS[id % FORMATS.length],
     status: STATUSES[id % STATUSES.length],
     season: SEASONS[id % SEASONS.length],
@@ -114,6 +116,17 @@ export const MEDIA = [
   }),
   ...Array.from({ length: 26 }, (_, index) => media(index + 5)),
 ];
+
+
+// Русский поиск: у AniList только английское и японское название, «Атака титанов» знает Shikimori (MAL 16498).
+Object.assign(
+  MEDIA.find((item) => item.id === 6),
+  {
+    idMal: 16498,
+    title: { romaji: "Shingeki no Kyojin", english: "Attack on Titan", native: "進撃の巨人" },
+    synonyms: ["AoT"],
+  },
+);
 
 export const GENRES = [
   "Action", "Adventure", "Comedy", "Drama", "Ecchi", "Fantasy", "Hentai", "Horror",

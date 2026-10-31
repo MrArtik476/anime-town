@@ -50,6 +50,7 @@ function catalog(vars) {
     if (vars.season && m.season !== vars.season) return false;
     if (vars.format && m.format !== vars.format) return false;
     if (vars.status && m.status !== vars.status) return false;
+    if (vars.idMalIn && !vars.idMalIn.includes(m.idMal)) return false;
     return true;
   });
   const sort = SORTERS[vars.sort?.[0]] ?? SORTERS.POPULARITY_DESC;

@@ -31,12 +31,14 @@ test.describe("Каталог", () => {
     await expect(cards(page)).toHaveCount(24);
   });
 
-  test("поиск по русскому названию из синонимов", async ({ page }) => {
+  test("поиск на кириллице идёт через Shikimori", async ({ page }) => {
     await page.goto("/catalog");
     await search(page).fill("Звёздный");
     await search(page).press("Enter");
     await expect(page).toHaveURL(/q=%D0%97/);
-    await expect(cards(page)).toHaveCount(1);
+    // AniList знает только «Звёздный город» (синоним), Shikimori — оба сезона.
+    await expect(cards(page)).toHaveCount(2);
+    await expect(cards(page).first()).toContainText("Звёздный город");
   });
 
   test("нет результатов — сообщение и сброс", async ({ page }) => {
@@ -81,7 +83,8 @@ test.describe("Каталог", () => {
 
     await desktopFilter(page, "Сортировка").selectOption("episodes");
     await expect(page).toHaveURL(/sort=episodes/);
-    await expect(cards(page).first()).not.toContainText("Звёздный город");
+    // Первым идёт не тайтл №1 («Звёздный город 2» — другой тайтл, его название с Shikimori).
+    await expect(cards(page).first()).not.toContainText(/Звёздный город(?! 2)/);
   });
 
   test("состояние восстанавливается из URL после перезагрузки", async ({ page }) => {

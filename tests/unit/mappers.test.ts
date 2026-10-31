@@ -5,6 +5,7 @@ import type { AniListMediaCard, AniListMediaDetails } from "@/lib/anilist/types"
 
 const card = (overrides: Partial<AniListMediaCard> = {}): AniListMediaCard => ({
   id: 21,
+  idMal: 21,
   title: { romaji: "ONE PIECE", english: "One Piece", native: "ONE PIECE" },
   synonyms: ["Ван-Пис", "OP"],
   coverImage: { extraLarge: "https://s4.anilist.co/xl.jpg", large: "https://s4.anilist.co/l.jpg", color: "#e4a15d" },
@@ -51,6 +52,7 @@ describe("mapMediaToCard", () => {
   it("нормализует карточку", () => {
     expect(mapMediaToCard(card())).toEqual({
       id: 21,
+      malId: 21,
       title: "Ван-Пис",
       altTitle: "ONE PIECE",
       coverUrl: "https://s4.anilist.co/l.jpg",
@@ -137,7 +139,7 @@ describe("mapMediaToDetails", () => {
     const result = mapMediaToDetails(details());
     expect(result.title).toBe("Ван-Пис");
     expect(result.coverUrl).toBe("https://s4.anilist.co/xl.jpg");
-    expect(result.description).toBe("Pirates.\n\nTreasure & adventure.");
+    expect(result.description).toEqual({ language: "en", source: "anilist", text: "Pirates.\n\nTreasure & adventure." });
     expect(result.startDate).toBe("20 октября 1999");
     expect(result.endDate).toBeNull();
     expect(result.studios).toEqual(["Toei Animation"]);
