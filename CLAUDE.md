@@ -19,12 +19,21 @@
 Skills меняются в `Buld/.claude/skills/`, после чего копия в корне синхронизируется (с подтверждения пользователя).
 
 ## Стек (зафиксирован, см. ARCHITECTURE.md)
-- Next.js 16 (App Router, Server Components), React 19, TypeScript **6.0.x** (не 7 — typescript-eslint пока не поддерживает TS 7)
-- Tailwind CSS 4, shadcn/ui, Motion
+- Next.js 16.4 (App Router, Server Components, Turbopack, Cache Components), React 19.3, TypeScript **6.0.x** (`~6.0.3`; не 6.1+ и не 7 — typescript-eslint поддерживает `<6.1.0`)
+- Tailwind CSS 4, shadcn/ui (стиль `base-nova`, Base UI), Motion
 - Supabase: Postgres, Auth, Storage, RLS; клиент `@supabase/ssr`
 - AniList GraphQL API — метаданные; HLS.js — воспроизведение
-- Playwright, ESLint 10 (flat config), `tsc --noEmit`
+- Playwright, ESLint **9** (flat config; 10 несовместим с плагинами eslint-config-next), `tsc --noEmit`
 - Хостинг: Vercel. Node.js ≥ 20.9
+- Точные версии — DEVELOPMENT.md → «Версии пакетов».
+
+## Next.js: AGENTS.md
+@AGENTS.md
+
+Next.js 16 отличается от того, что в памяти модели: перед кодом на Next.js читай актуальные гайды в `node_modules/next/dist/docs/` и/или Context7. В частности, `middleware.ts` переименован в `proxy.ts`. Блок в `AGENTS.md` поддерживает `next dev` — не редактировать вручную.
+
+## Структура кода
+`src/app` — маршруты · `src/components/{ui,layout,home,motion,providers}` — компоненты (ui — только shadcn) · `src/config` — конфигурация сайта · `src/hooks` — хуки · `src/lib` — `utils.ts`, `supabase/` · `src/types` — типы (в т. ч. `database.ts`). Подробно — ARCHITECTURE.md §2.
 
 ## Обязательные правила
 1. Перед использованием API библиотеки — свериться с актуальной документацией через **Context7**, не полагаться на память.
@@ -106,11 +115,11 @@ Claude обязан работать через отдельную ветку з
 
 ## Команды (в `Buld/`)
 ```bash
-npm run dev          # локальный сервер
+npm run dev          # локальный сервер (http://localhost:3000)
 npm run lint         # ESLint
-npm run typecheck    # tsc --noEmit
-npm run test         # unit
-npm run test:e2e     # Playwright
+npm run typecheck    # next typegen && tsc --noEmit
 npm run build        # production-сборка
-npm run db:types     # генерация типов Supabase
+npm run start        # запуск собранной версии
 ```
+Появятся вместе с задачами (см. DEVELOPMENT.md → «Скрипты»): `npm run test`, `npm run test:e2e`, `npm run db:types`. Пока их нет, обязательные проверки перед коммитом — `lint`, `typecheck`, `build` и проверка страницы через Playwright MCP.
+После запуска `npm run dev` в фоне — обязательно остановить сервер и убедиться, что порт 3000 освобождён (дочерний процесс node может остаться).

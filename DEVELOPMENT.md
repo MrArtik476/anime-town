@@ -18,51 +18,56 @@
 
 Проверка: `node -v`, `npm -v`, `git --version`, `gh auth status`.
 
-## Версии пакетов (проверено 31.10.2026 по npm)
-| Пакет | Версия | Комментарий |
-|---|---|---|
-| next | 16.4.x | Node ≥ 20.9, React 18/19 |
-| react / react-dom | 19.x | |
-| typescript | **6.0.3** | typescript-eslint 8.72 требует `<6.1.0`, TS 7 не ставить |
-| tailwindcss | 4.3.x | |
-| motion | 14.x | импорт `motion/react` |
-| shadcn (CLI) | 4.x | `npx shadcn@latest init` |
-| @supabase/supabase-js | 2.118.x | |
-| @supabase/ssr | 0.12.x | cookies-сессии для App Router |
-| hls.js | 1.7.x | |
-| @playwright/test | 1.64.x | |
-| eslint | 10.x + eslint-config-next 16.4 | flat config |
-| supabase (CLI) | актуальная | dev-зависимость |
+## Версии пакетов (установлены 31.10.2026, `package-lock.json`)
+| Пакет | Установлено | Диапазон в package.json | Комментарий |
+|---|---|---|---|
+| next | 16.4.3 | 16.4.3 | Node ≥ 20.9; Turbopack, Cache Components, Partial Prefetching включены шаблоном |
+| react / react-dom | 19.3.0 | 19.3.0 | |
+| typescript | **6.0.3** | `~6.0.3` | typescript-eslint 8.72 требует `<6.1.0` — поэтому `~`, не `^`; TS 7 не ставить |
+| tailwindcss | 4.3.3 | ^4 | подключён через `@tailwindcss/turbopack` (без PostCSS) |
+| shadcn/ui | CLI 4.23.0 | ^4.23.0 (dev) | стиль `base-nova` на Base UI (`@base-ui/react` 1.9.0); `cn` 0.5.1, `class-variance-authority` 0.7.1, `lucide-react` 1.66.0, `tw-animate-css` 1.4.0 |
+| motion | 14.9.0 | ^14.9.0 | импорт `motion/react` |
+| @supabase/supabase-js | 2.118.0 | ^2.118.0 | |
+| @supabase/ssr | 0.12.7 | ^0.12.7 | cookies-сессии для App Router |
+| hls.js | 1.7.4 | ^1.7.4 | |
+| @playwright/test | 1.64.1 | ^1.64.1 (dev) | браузеры для e2e ещё не установлены (`npx playwright install chromium`) |
+| eslint | **9.39.5** | ^9 (dev) | + eslint-config-next 16.4.3. ESLint 10 не ставить: плагины `import`, `jsx-a11y`, `react` внутри eslint-config-next поддерживают только ≤ 9 |
+| supabase (CLI) | — | — | не установлен; ставится вместе с Supabase-проектом: `npm i -D supabase` |
 
 Пакеты вне этой таблицы и смена мажорных версий — только после подтверждения и записи в таблицу.
+`npm audit --omit=dev` — 0 уязвимостей. Предупреждения уровня moderate в dev-зависимостях идут через CLI `shadcn` (`deepmerge`, `ts-morph`/`minimatch`); `npm audit fix --force` не запускать — он откатывает shadcn до 1.0.
 
-## Инициализация проекта (один раз)
-`create-next-app` нельзя запускать прямо в `Buld/`: он допускает в целевой папке только `.git`, `.gitignore`, `.claude` и ещё несколько служебных файлов, а `CLAUDE.md`, `ARCHITECTURE.md`, `DEVELOPMENT.md`, `ROADMAP.md`, `.env.example`, `.mcp.json` считает конфликтом и останавливается (флага `--force` нет). Поэтому — генерация во временную папку и перенос.
-
-Проверено пробной генерацией `create-next-app@16.4.3` (31.10.2026): шаблон создаёт `AGENTS.md`, `README.md`, `eslint.config.mjs`, `next.config.ts`, `next-env.d.ts`, `package.json`, `tsconfig.json`, `public/*`, `src/app/*` и `.gitignore`. С файлами в `Buld/` пересекается только `.gitignore`. `CLAUDE.md` шаблон не создаёт.
+## Инициализация проекта (выполнена 31.10.2026)
+`create-next-app` нельзя запускать прямо в `Buld/`: он допускает в целевой папке только `.git`, `.gitignore`, `.claude` и ещё несколько служебных файлов, а `CLAUDE.md`, `ARCHITECTURE.md`, `DEVELOPMENT.md`, `ROADMAP.md`, `.env.example`, `.mcp.json` считает конфликтом (флага `--force` нет). Как это было сделано — на случай повторной генерации:
 
 ```bash
 # 1. Генерация во временной папке вне репозитория
 npx create-next-app@16.4.3 anime-town-tmp --ts --tailwind --eslint --app --src-dir --import-alias "@/*" --use-npm --skip-install --disable-git --yes
-# 2. Перенос в Buld/ всего, кроме .gitignore (существующие файлы не перезаписываются)
-# 3. .gitignore — объединить вручную: наш файл + недостающие строки шаблона (/.pnp, .pnp.*, .yarn/*, /coverage, *.pem)
-# 4. Установка и закрепление версий из таблицы
+# 2. Перенос в Buld/ без перезаписи существующих файлов (демо-иконки public/*.svg не переносились)
+# 3. .gitignore — объединён вручную: наши правила + строки шаблона (/.pnp, .pnp.*, .yarn/*, /coverage, *.pem, yarn/pnpm-логи)
+# 4. Зависимости
 npm install
-npm i -D typescript@6.0.3   # шаблон ставит typescript ^5
-npm i -D eslint@10          # шаблон ставит eslint ^9; оставить 10, только если `npm run lint` проходит, иначе вернуть ^9 и поправить таблицу версий
-npx shadcn@latest init
-```
-Пакеты фич добавляются по мере появления фич, а не все сразу:
-```bash
+npm i -D typescript@~6.0.3
+npx shadcn@latest init -d -y --no-monorepo
 npm i motion @supabase/supabase-js @supabase/ssr hls.js
-npm i -D @playwright/test supabase && npx playwright install chromium
+npm i -D @playwright/test
 ```
 
-`AGENTS.md`: блок между `<!-- BEGIN:nextjs-agent-rules -->` и `<!-- END:nextjs-agent-rules -->` создаёт и поддерживает `next dev` (Next.js ≥ 16.3) — он направляет агентов к документации установленной версии в `node_modules/next/dist/docs/`. Файл коммитится, блок вручную не редактируется; в `CLAUDE.md` добавить ссылку на `AGENTS.md`. Отключение — `agentRules: false` в `next.config.ts` или `--no-agents-md` при генерации.
+`AGENTS.md`: блок между `<!-- BEGIN:nextjs-agent-rules -->` и `<!-- END:nextjs-agent-rules -->` создаёт и поддерживает `next dev` (Next.js ≥ 16.3) — он направляет агентов к документации установленной версии в `node_modules/next/dist/docs/`. Файл коммитится, блок вручную не редактируется. Отключение — `agentRules: false` в `next.config.ts`.
 
-## Скрипты package.json (добавить)
+## Скрипты package.json
+Есть сейчас:
 ```json
-"typecheck": "tsc --noEmit",
+"dev": "next dev",
+"build": "next build",
+"start": "next start",
+"lint": "eslint",
+"typecheck": "next typegen && tsc --noEmit"
+```
+`typecheck` сначала генерирует типы маршрутов (`LayoutProps`, `PageProps` и т. п. в `.next/types`), иначе `tsc` без предварительного `build` падает с `Cannot find name 'LayoutProps'`.
+
+Добавить вместе с соответствующими задачами:
+```json
 "test": "node --test",
 "test:e2e": "playwright test",
 "db:types": "supabase gen types typescript --linked > src/types/database.ts"
@@ -70,8 +75,11 @@ npm i -D @playwright/test supabase && npx playwright install chromium
 `db:types` берёт проект из `supabase link` (один раз: `npx supabase login` → `npx supabase link --project-ref <ref>`), поэтому работает и в cmd.exe на Windows, где npm-скрипты не подставляют `$VAR`.
 Для `test` можно выбрать Vitest — тогда добавить его в таблицу версий.
 
+## Переменные окружения
+`.env.example` → копия в `.env.local`. Supabase-клиенты (`src/lib/supabase/`) создаются только при наличии реальных `NEXT_PUBLIC_SUPABASE_URL` и `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`; значения-заглушки из `.env.example` считаются отсутствующими, и вызов клиента выбрасывает понятную ошибку. Без `.env.local` приложение собирается и работает — Supabase на главной пока не используется.
+
 ## .gitignore
-Создан до первого коммита: `node_modules/`, `.next/`, `.env*` (кроме `.env.example`), отчёты Playwright, временные файлы Supabase и т. д. При добавлении инструментов — дополнять.
+Объединены правила проекта и шаблона Next.js: `node_modules/`, `.next/`, `.env*` (кроме `.env.example`), `*.pem`, отчёты Playwright, `.playwright-mcp/`, временные файлы Supabase, `.mcp.json`, `.claude/settings.local.json`. При добавлении инструментов — дополнять.
 
 ## Ветки и коммиты
 - `main` — стабильная основная ветка (`origin/main`, первый коммит `dd5a3a7`). Напрямую в неё не коммитим и не пушим.
