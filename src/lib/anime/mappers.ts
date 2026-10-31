@@ -5,7 +5,7 @@ import type {
   AniListRelationEdge,
   MediaTitle,
 } from "@/lib/anilist/types";
-import type { AnimeCard, AnimeDetails, AnimeRelation, FeaturedAnime } from "@/types/anime";
+import type { AnimeCard, AnimeDescription, AnimeDetails, AnimeRelation, FeaturedAnime } from "@/types/anime";
 
 import { cleanDescription, formatFuzzyDate } from "./format";
 
@@ -40,10 +40,17 @@ const validYear = (year: number | null | undefined) =>
 const positive = (value: number | null | undefined) =>
   typeof value === "number" && value > 0 ? value : null;
 
+/** Английское описание AniList до локализации; русское подставляет lib/localization. */
+export function originalDescription(raw: string | null | undefined): AnimeDescription | null {
+  const text = cleanDescription(raw);
+  return text ? { language: "en", source: "anilist", text } : null;
+}
+
 export function mapMediaToCard(media: AniListMediaCard): AnimeCard {
   const { main, alt } = pickTitles(media.title, media.synonyms);
   return {
     id: media.id,
+    malId: positive(media.idMal),
     title: main,
     altTitle: alt,
     coverUrl: clean(media.coverImage?.large) ?? clean(media.coverImage?.extraLarge),
@@ -63,7 +70,7 @@ export function mapFeatured(media: AniListFeaturedMedia): FeaturedAnime {
     ...mapMediaToCard(media),
     coverUrl: clean(media.coverImage?.extraLarge) ?? clean(media.coverImage?.large),
     bannerUrl: clean(media.bannerImage),
-    description: cleanDescription(media.description),
+    description: originalDescription(media.description),
   };
 }
 
@@ -96,7 +103,7 @@ export function mapMediaToDetails(media: AniListMediaDetails): AnimeDetails {
     romajiTitle: clean(media.title.romaji),
     nativeTitle: clean(media.title.native),
     synonyms,
-    description: cleanDescription(media.description),
+    description: originalDescription(media.description),
     bannerUrl: clean(media.bannerImage),
     popularity: positive(media.popularity),
     favourites: positive(media.favourites),

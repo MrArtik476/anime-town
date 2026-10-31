@@ -39,6 +39,8 @@ export type MediaCoverImage = {
 /** Поля карточки — общий фрагмент для всех списков. */
 export type AniListMediaCard = {
   id: number;
+  /** ID на MyAnimeList — он же ID тайтла на Shikimori. */
+  idMal: number | null;
   title: MediaTitle;
   synonyms: string[] | null;
   coverImage: MediaCoverImage | null;

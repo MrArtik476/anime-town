@@ -10,7 +10,8 @@
     "typecheck": "next typegen && tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "db:types": "supabase gen types typescript --project-id bhzshfkhpumyojxuygsc --schema public > src/types/database.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.9.0",

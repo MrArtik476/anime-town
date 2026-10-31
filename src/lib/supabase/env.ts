@@ -13,6 +13,22 @@ export function getSupabaseEnv(): SupabaseEnv | null {
   return { url, publishableKey };
 }
 
+export type SupabaseAdminEnv = { url: string; serviceRoleKey: string };
+
+/**
+ * Серверный доступ на запись (service role, мимо RLS). Только для серверного кода:
+ * переменная без префикса NEXT_PUBLIC_ в клиентскую сборку не попадает.
+ */
+export function getSupabaseAdminEnv(): SupabaseAdminEnv | null {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!url || !serviceRoleKey) return null;
+  if (PLACEHOLDER.test(url) || PLACEHOLDER.test(serviceRoleKey)) return null;
+
+  return { url, serviceRoleKey };
+}
+
 export function isSupabaseConfigured(): boolean {
   return getSupabaseEnv() !== null;
 }

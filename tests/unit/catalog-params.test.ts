@@ -101,6 +101,7 @@ describe("toCatalogVariables", () => {
       season: "SPRING",
       format: "MOVIE",
       status: "FINISHED",
+      idMalIn: null,
       excludedGenres: ["Hentai"],
     });
   });
