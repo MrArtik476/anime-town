@@ -10,7 +10,9 @@ import { buttonVariants } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { parseEpisodeNumber } from "@/features/episodes/ids";
 import { formatDuration, getEpisode, getEpisodes } from "@/features/episodes/queries";
-import { VideoPlayer } from "@/features/player/components/video-player";
+import { WatchPlayer } from "@/features/progress/components/watch-player";
+import { resumePosition } from "@/features/progress/model";
+import { getMyEpisodeProgress } from "@/features/progress/queries";
 import { LICENSE_LABELS, resolvePlaybackSource } from "@/features/player/source";
 import { getLocalizedAnimeById } from "@/lib/anilist/api";
 import { parseAnimeId } from "@/lib/anime/ids";
@@ -54,6 +56,7 @@ async function WatchContent({ params }: Pick<WatchPageProps, "params">) {
   const source = resolvePlaybackSource(episode);
   if (!source) notFound();
 
+  const { signedIn, progress } = await getMyEpisodeProgress(episode.id);
   const title = anime.ok ? anime.data.title : `Аниме №${id}`;
   const index = episodes.findIndex((item) => item.number === number);
   const previous = index > 0 ? episodes[index - 1] : null;
@@ -78,7 +81,11 @@ async function WatchContent({ params }: Pick<WatchPageProps, "params">) {
           </p>
 
           <div className="mt-5">
-            <VideoPlayer
+            <WatchPlayer
+              animeId={id}
+              number={episode.number}
+              signedIn={signedIn}
+              resumeAt={resumePosition(progress)}
               src={source.url}
               title={`${title}, серия ${episode.number}`}
               subtitles={episode.subtitles}

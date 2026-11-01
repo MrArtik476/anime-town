@@ -222,6 +222,60 @@ export type Database = {
           },
         ]
       }
+      watch_progress: {
+        Row: {
+          anilist_id: number
+          completed: boolean | null
+          cover_url: string | null
+          duration_sec: number
+          episode_id: number
+          episode_number: number
+          position_sec: number
+          title: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          anilist_id: number
+          completed?: never
+          cover_url?: string | null
+          duration_sec: number
+          episode_id: number
+          episode_number: number
+          position_sec: number
+          title: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          anilist_id?: number
+          completed?: never
+          cover_url?: string | null
+          duration_sec?: number
+          episode_id?: number
+          episode_number?: number
+          position_sec?: number
+          title?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "watch_progress_episode_id_fkey"
+            columns: ["episode_id"]
+            isOneToOne: false
+            referencedRelation: "episodes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "watch_progress_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
