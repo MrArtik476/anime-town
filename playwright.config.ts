@@ -1,14 +1,17 @@
 import { defineConfig, devices } from "@playwright/test";
 
+import { E2E_CRON_SECRET, E2E_DEEPL_KEY } from "./tests/e2e/constants";
+
 const APP_PORT = 3100;
 const MOCK_PORT = 4010;
 const SHIKIMORI_MOCK_PORT = 4020;
+const DEEPL_MOCK_PORT = 4030;
 const isCI = !!process.env.CI;
 
 /**
  * E2E на production-сборке с контролируемым AniList:
  * - мок GraphQL (tests/mock-anilist) вместо graphql.anilist.co — тесты не зависят от сети и лимитов;
- * - мок Shikimori и переводчика (tests/mock-shikimori) — русские названия, описания и машинный перевод;
+ * - мок Shikimori (tests/mock-shikimori) — русские названия и описания; мок DeepL (tests/mock-deepl) — машинный перевод;
  *   переводы хранятся в памяти процесса (Supabase в E2E не используется);
  * - ANIME_TOWN_E2E=1 — отдельная папка сборки .next-e2e;
  * - обложки AniList и в production грузятся браузером напрямую (unoptimized), поэтому Playwright
@@ -44,14 +47,22 @@ export default defineConfig({
       reuseExistingServer: !isCI,
     },
     {
+      command: "node tests/mock-deepl/server.mjs",
+      url: `http://127.0.0.1:${DEEPL_MOCK_PORT}/health`,
+      env: { MOCK_DEEPL_PORT: String(DEEPL_MOCK_PORT), MOCK_DEEPL_KEY: E2E_DEEPL_KEY },
+      reuseExistingServer: !isCI,
+    },
+    {
       command: `npx next build && npx next start -p ${APP_PORT} -H 127.0.0.1`,
       url: `http://127.0.0.1:${APP_PORT}/catalog`,
       env: {
         ANIME_TOWN_E2E: "1",
         ANILIST_GRAPHQL_URL: `http://127.0.0.1:${MOCK_PORT}/graphql`,
         SHIKIMORI_GRAPHQL_URL: `http://127.0.0.1:${SHIKIMORI_MOCK_PORT}/api/graphql`,
-        TRANSLATOR_PROVIDER: "mock",
-        TRANSLATOR_MOCK_URL: `http://127.0.0.1:${SHIKIMORI_MOCK_PORT}/translate`,
+        TRANSLATOR_PROVIDER: "deepl",
+        DEEPL_API_KEY: E2E_DEEPL_KEY,
+        DEEPL_API_URL: `http://127.0.0.1:${DEEPL_MOCK_PORT}`,
+        CRON_SECRET: E2E_CRON_SECRET,
         NEXT_TELEMETRY_DISABLED: "1",
       },
       timeout: 240_000,

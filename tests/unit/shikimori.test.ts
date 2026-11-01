@@ -138,7 +138,7 @@ describe("loadLocalizations", () => {
   it("свежая строка из хранилища — без запроса к Shikimori", async () => {
     const store = createMemoryStore();
     await store.upsertMany([
-      { anilistId: 1, malId: 1001, titleRu: "Звёздный город", synonymsRu: [], descriptionRu: null, source: null, sourceHash: null, shikimoriUrl: null },
+      { anilistId: 1, malId: 1001, titleRu: "Звёздный город", synonymsRu: [], descriptionRu: null, source: null, sourceHash: null, translator: null, shikimoriUrl: null },
     ]);
     const fetchSpy = vi.spyOn(globalThis, "fetch");
 

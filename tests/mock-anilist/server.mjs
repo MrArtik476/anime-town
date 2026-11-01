@@ -1,5 +1,5 @@
 // Мок AniList GraphQL для E2E: приложение запускается с ANILIST_GRAPHQL_URL=http://127.0.0.1:4010/graphql.
-// Отвечает по имени операции (HomeCollections, CatalogPage, Genres, AnimeDetails) из fixtures.mjs.
+// Отвечает по имени операции (HomeCollections, CatalogPage, Genres, AnimeDetails, TranslationCandidates) из fixtures.mjs.
 //
 // Управляемые сценарии:
 //   поиск «__error__»      → 500 (сбой AniList)
@@ -84,6 +84,15 @@ function handle(query, vars, res) {
         return json(res, 429, { errors: [{ message: "Too Many Requests.", status: 429 }] }, { "Retry-After": "60" });
       }
       return json(res, 200, { data: catalog(vars) });
+    }
+    case "TranslationCandidates": {
+      const all = visible(vars.excludedGenres);
+      return json(res, 200, {
+        data: {
+          trending: page([...all].sort(SORTERS.TRENDING_DESC), 1, vars.perPage),
+          popular: page([...all].sort(SORTERS.POPULARITY_DESC), 1, vars.perPage),
+        },
+      });
     }
     case "Genres":
       return json(res, 200, { data: { GenreCollection: GENRES } });
