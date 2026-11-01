@@ -57,6 +57,8 @@ src/
                            rating.ts (средняя оценка сайта, use cache), components/ (ListPanel, RatingSummaryCard, MyList)
   features/episodes/       серии: queries.ts (getEpisodes, getEpisode — use cache, публичный клиент), components/EpisodesList
   features/player/source.ts  ЕДИНСТВЕННОЕ место выбора источника видео: resolvePlaybackSource (ADR-022)
+  features/player/         VideoPlayer (hls.js по требованию, качество, субтитры, клавиши, автопереход), shortcuts.ts
+  app/anime/[id]/watch/[number]  страница серии: плеер, атрибуция лицензии, соседние серии, список серий
   features/auth/avatar.ts  проверка аватара (тип по первым байтам, до 1 МБ); actions uploadAvatar / removeAvatar
   app/(auth)/              /login, /register, /forgot-password;  app/(account)/account — профиль и список;
                            app/auth/callback (код из письма), app/auth/update-password
@@ -167,7 +169,7 @@ tests/e2e/                 Playwright
 ## 4. Ключевые потоки
 - **Каталог (сейчас)**: AniList GraphQL напрямую с сервера, с кэшем `use cache` (см. §2 «Каталог и AniList»).
 - **Каталог (позже)**: собственная таблица `anime` + фильтры → индексы + полнотекстовый поиск (`tsvector`, `pg_trgm` для опечаток), синхронизация с AniList по расписанию.
-- **Просмотр**: страница серии получает плейлист → HLS.js → каждые ~10 с upsert в `watch_progress`.
+- **Просмотр** (этап 4): `/anime/[id]/watch/[n]` → `getEpisode` (use cache) → `resolvePlaybackSource` (без прав — 404) → `VideoPlayer`. hls.js подгружается динамически только здесь; есть MSE — hls.js с выбором качества, нет — нативный HLS (Safari/iOS). Ошибки: media — `recoverMediaError()` не чаще раза в 5 с, сеть — «Повторить» (сразу перезапускать нельзя: цикл). Субтитры — `<track>` WebVTT, переключение через `textTracks`. Клавиши: пробел/K, ←/→ (10 с), F, M, C (и в русской раскладке). В конце — «Следующая серия» с отсчётом 5 с, автопереход отключается (localStorage). При уходе со страницы (`<Activity>` прячет её) очистка уничтожает hls и снимает источник — скрытое видео не играет.
 - **Авторизация** (этап 3, ADR-018): Supabase Auth, email + пароль (OAuth — позже). Сессия в cookies (`@supabase/ssr`).
   - `proxy.ts` на каждой странице: сначала лимит каталога (429), затем `updateSession` — `getClaims()` проверяет JWT и при необходимости обновляет токен; cookies и `Cache-Control/Expires/Pragma` уходят в ответ. Гость на `/account` или `/auth/update-password` → `/login?next=…`.
   - Сервер доверяет только `getClaims()` (`features/auth/session.ts`), не `getSession()`. Страницы аккаунта проверяют пользователя ещё раз; данные защищены RLS.
