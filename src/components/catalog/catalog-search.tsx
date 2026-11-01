@@ -26,6 +26,16 @@ export function CatalogSearch({ value, onSearch }: CatalogSearchProps) {
   const [syncedValue, setSyncedValue] = useState(value);
   const debounced = useDebouncedValue(text, SEARCH_DEBOUNCE_MS);
   const previousDebounced = useRef(debounced);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // Текст, набранный до гидратации, остаётся в DOM, но React о нём не знает: первый же повторный рендер
+  // управляемого поля стёр бы его. После гидратации забираем его в состояние — дальше обычный debounce.
+  useEffect(() => {
+    const typed = inputRef.current?.value ?? "";
+    if (typed !== text) setText(typed);
+    // Только при монтировании: позже поле всегда совпадает с состоянием.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Запрос сменился снаружи (сброс фильтров, кнопка «назад») — подтягиваем текст в поле.
   if (value !== syncedValue) {
@@ -54,7 +64,10 @@ export function CatalogSearch({ value, onSearch }: CatalogSearchProps) {
       role="search"
       onSubmit={(event) => {
         event.preventDefault();
-        submitNow(text);
+        // Значение берётся из поля, а не из состояния: текст, набранный до гидратации, React не видел.
+        const typed = String(new FormData(event.currentTarget).get("q") ?? "");
+        if (typed !== text) setText(typed);
+        submitNow(typed);
       }}
     >
       <label htmlFor="catalog-search" className="sr-only">
@@ -63,7 +76,9 @@ export function CatalogSearch({ value, onSearch }: CatalogSearchProps) {
       <div className="relative">
         <Search aria-hidden className="pointer-events-none absolute top-1/2 left-3.5 size-4 -translate-y-1/2 text-muted-foreground" />
         <input
+          ref={inputRef}
           id="catalog-search"
+          name="q"
           type="search"
           inputMode="search"
           autoComplete="off"

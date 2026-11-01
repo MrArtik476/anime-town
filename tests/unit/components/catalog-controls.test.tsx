@@ -1,4 +1,6 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
+import { hydrateRoot } from "react-dom/client";
+import { renderToString } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ActiveFilters } from "@/components/catalog/active-filters";
@@ -67,6 +69,45 @@ describe("CatalogSearch", () => {
 
     act(() => vi.advanceTimersByTime(SEARCH_DEBOUNCE_MS));
     expect(onSearch).not.toHaveBeenCalled();
+  });
+
+  it("текст, набранный до гидратации, сохраняется после повторного рендера и уходит в поиск", async () => {
+    const onSearch = vi.fn();
+    const container = document.createElement("div");
+    container.innerHTML = renderToString(<CatalogSearch value={null} onSearch={onSearch} />);
+    document.body.append(container);
+    // Пользователь печатает в серверный HTML до того, как загрузился JS.
+    container.querySelector("input")!.value = "naruto";
+
+    let root: ReturnType<typeof hydrateRoot> | undefined;
+    try {
+      await act(async () => {
+        root = hydrateRoot(container, <CatalogSearch value={null} onSearch={onSearch} />);
+      });
+      // Любой повторный рендер управляемого поля не должен стирать набранное.
+      await act(async () => root!.render(<CatalogSearch value={null} onSearch={vi.fn()} />));
+      expect(container.querySelector("input")!.value).toBe("naruto");
+
+      await act(async () => root!.render(<CatalogSearch value={null} onSearch={onSearch} />));
+      act(() => vi.advanceTimersByTime(SEARCH_DEBOUNCE_MS));
+      expect(onSearch).toHaveBeenLastCalledWith("naruto");
+    } finally {
+      act(() => root?.unmount());
+      container.remove();
+    }
+  });
+
+  it("Enter берёт текст из поля, даже если React не видел ввода (набран до гидратации)", () => {
+    const onSearch = vi.fn();
+    render(<CatalogSearch value={null} onSearch={onSearch} />);
+    const input = screen.getByLabelText("Поиск по названию") as HTMLInputElement;
+
+    // Значение в DOM без события change — как после ввода до гидратации.
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(input, "naruto");
+    fireEvent.submit(screen.getByRole("search"));
+
+    expect(onSearch).toHaveBeenLastCalledWith("naruto");
+    expect(input.value).toBe("naruto");
   });
 });
 
