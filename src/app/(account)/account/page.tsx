@@ -32,7 +32,7 @@ async function AccountContent() {
   const { user, profile } = current;
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
+    <div className="grid grid-cols-[minmax(0,1fr)] gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
       <section aria-labelledby="profile-heading" className="rounded-2xl border border-border/70 bg-card/60 p-6 sm:p-8">
         <h2 id="profile-heading" className="font-heading text-lg font-semibold">
           Данные профиля

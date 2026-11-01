@@ -72,7 +72,7 @@ async function WatchContent({ params }: Pick<WatchPageProps, "params">) {
         <ArrowLeft aria-hidden className="size-4" /> К тайтлу
       </Link>
 
-      <div className="mt-4 grid gap-8 lg:grid-cols-[minmax(0,1fr)_18rem]">
+      <div className="mt-4 grid grid-cols-[minmax(0,1fr)] gap-8 lg:grid-cols-[minmax(0,1fr)_18rem]">
         <div className="min-w-0">
           <h1 className="font-heading text-2xl font-bold tracking-tight sm:text-3xl">{title}</h1>
           <p className="mt-1 text-muted-foreground">
