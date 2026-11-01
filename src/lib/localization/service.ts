@@ -14,23 +14,37 @@ export type LocalizationBatch = {
   complete: boolean;
 };
 
+export type StoredLocalizations = { records: Map<number, LocalizationRecord>; ok: boolean };
+
+/**
+ * Строки переводов из хранилища по id AniList. Для чтения не нужен MAL id, поэтому вызывающий код может
+ * запустить его параллельно с запросом к AniList (страница тайтла). Сбой хранилища — пустой результат, ok: false.
+ */
+export async function readLocalizations(
+  ids: number[],
+  store: LocalizationStore = getLocalizationStore(),
+): Promise<StoredLocalizations> {
+  try {
+    return { records: await store.getMany(ids), ok: true };
+  } catch (error) {
+    console.error("[localization] хранилище недоступно", error);
+    return { records: new Map(), ok: false };
+  }
+}
+
 /**
  * Русские данные для набора тайтлов: из хранилища, а устаревшие и новые — пачкой из Shikimori
  * с сохранением обратно. Любой сбой не ломает страницу: тайтлы остаются с данными AniList.
+ * `stored` — строки, уже прочитанные через readLocalizations (чтобы не читать дважды).
  */
 export async function loadLocalizations(
   entries: Entry[],
   store: LocalizationStore = getLocalizationStore(),
+  stored?: StoredLocalizations,
 ): Promise<LocalizationBatch> {
-  let complete = true;
-  let records = new Map<number, LocalizationRecord>();
-
-  try {
-    records = await store.getMany(entries.map((entry) => entry.id));
-  } catch (error) {
-    complete = false;
-    console.error("[localization] хранилище недоступно", error);
-  }
+  const initial = stored ?? (await readLocalizations(entries.map((entry) => entry.id), store));
+  let complete = initial.ok;
+  const records = new Map(initial.records);
 
   const stale = entries.filter((entry) => needsShikimoriRefresh(entry.malId, records.get(entry.id)));
   if (!stale.length) return { records, complete };

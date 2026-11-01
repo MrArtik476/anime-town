@@ -1,7 +1,7 @@
 "use client";
 
 import { Loader2, SearchX } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { AnimeGrid } from "@/components/anime/anime-grid";
 import { DataError } from "@/components/anime/data-error";
@@ -38,11 +38,36 @@ export function CatalogResults({ filters, initial, isPending, onReset }: Catalog
   const [hasNextPage, setHasNextPage] = useState(initial.hasNextPage);
   const [loadingMore, setLoadingMore] = useState(false);
   const [loadError, setLoadError] = useState<AniListFailure | null>(null);
+  // Следующая страница, запрошенная заранее, когда кнопка «Загрузить ещё» подошла к экрану.
+  const prefetched = useRef<{ page: number; result: Promise<AniListResult<AnimePage>> } | null>(null);
+  const moreRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const target = moreRef.current;
+    // Без IntersectionObserver (старый браузер) — просто без подгрузки заранее.
+    if (!target || !hasNextPage || loadError || typeof IntersectionObserver === "undefined") return;
+    const nextPage = page + 1;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (!entry.isIntersecting || prefetched.current?.page === nextPage) return;
+        prefetched.current = { page: nextPage, result: fetchCatalogPage(filters, nextPage) };
+        observer.disconnect();
+      },
+      // Примерно экран до кнопки: к моменту клика страница чаще всего уже загружена.
+      { rootMargin: "800px 0px" },
+    );
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [filters, page, hasNextPage, loadError]);
 
   const loadMore = async () => {
     setLoadingMore(true);
     setLoadError(null);
-    const result = await fetchCatalogPage(filters, page + 1);
+    const nextPage = page + 1;
+    const ready = prefetched.current?.page === nextPage ? await prefetched.current.result : null;
+    prefetched.current = null;
+    // Заранее не получилось (лимит, сеть) — пробуем ещё раз уже по клику.
+    const result = ready?.ok ? ready : await fetchCatalogPage(filters, nextPage);
     setLoadingMore(false);
 
     if (!result.ok) {
@@ -83,7 +108,7 @@ export function CatalogResults({ filters, initial, isPending, onReset }: Catalog
         className={cn("transition-opacity duration-200", isPending && "pointer-events-none opacity-50")}
       />
 
-      <div className="mt-10 flex flex-col items-center gap-4">
+      <div ref={moreRef} className="mt-10 flex flex-col items-center gap-4">
         {loadError && (
           <DataError
             code={loadError.code}

@@ -1,7 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono, Unbounded } from "next/font/google";
 
-import { MotionProvider } from "@/components/providers/motion-provider";
 import { siteConfig } from "@/config/site";
 
 import "./globals.css";
@@ -42,7 +41,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       className={`dark ${geistSans.variable} ${geistMono.variable} ${unbounded.variable} h-full antialiased`}
     >
       <body className="flex min-h-full flex-col">
-        <MotionProvider>{children}</MotionProvider>
+        {children}
       </body>
     </html>
   );

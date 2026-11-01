@@ -77,4 +77,35 @@ describe("CatalogResults", () => {
     fireEvent.click(screen.getByRole("button", { name: "Сбросить фильтры" }));
     expect(onReset).toHaveBeenCalled();
   });
+
+  it("следующая страница запрашивается заранее, когда кнопка подходит к экрану; клик берёт готовый ответ", async () => {
+    let notify: ((entries: { isIntersecting: boolean }[]) => void) | undefined;
+    class FakeObserver {
+      constructor(callback: (entries: { isIntersecting: boolean }[]) => void) {
+        notify = callback;
+      }
+      observe() {}
+      disconnect() {}
+    }
+    vi.stubGlobal("IntersectionObserver", FakeObserver);
+    const fetchSpy = mockFetch({ ok: true, data: { items: [anime(3)], page: 2, hasNextPage: false } });
+    render(
+      <CatalogResults
+        filters={EMPTY_FILTERS}
+        initial={{ items: [anime(1), anime(2)], page: 1, hasNextPage: true }}
+        isPending={false}
+        onReset={vi.fn()}
+      />,
+    );
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+    notify?.([{ isIntersecting: true }]);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByRole("button", { name: "Загрузить ещё" }));
+    await waitFor(() => expect(screen.getByText("Тайтл 3")).toBeTruthy());
+    // Повторного запроса по клику нет.
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    vi.unstubAllGlobals();
+  });
 });

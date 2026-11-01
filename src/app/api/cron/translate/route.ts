@@ -1,5 +1,6 @@
 import { timingSafeEqual } from "node:crypto";
 
+import { revalidateTag } from "next/cache";
 import type { NextRequest } from "next/server";
 
 import { runTranslationBackfill } from "@/lib/localization/backfill";
@@ -33,6 +34,8 @@ export async function GET(request: NextRequest) {
 
   try {
     const report = await runTranslationBackfill({ limit: parsed.limit });
+    // Страницы тайтлов кэшируются с переводом (`use cache`, тег localization) — новые переводы видны сразу.
+    if (report.translated > 0) revalidateTag("localization", { expire: 0 });
     console.info("[translator] backfill", JSON.stringify(report));
     return Response.json({ ok: true, report }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
