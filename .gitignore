@@ -24,9 +24,6 @@ next-env.d.ts
 !.env.example
 *.pem
 
-# Vercel
-.vercel/
-
 # Playwright
 playwright-report/
 test-results/
