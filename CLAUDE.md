@@ -123,6 +123,8 @@ npm run start        # запуск собранной версии
 npm test             # unit-тесты (Vitest)
 npm run test:e2e     # E2E (Playwright, production-сборка + моки AniList, Shikimori, DeepL)
 npm run translate    # фоновый машинный перевод без сервера (-- --limit N), пишет в Supabase
+npm run rls:check    # проверка RLS на настоящем Supabase (временные пользователи, очистка)
+npm run perf         # замер скорости локальной production-сборки (-- <метка>)
 ```
 `npm run db:types` — типы базы (нужен `npx supabase login`); миграции — `supabase/migrations/`. Обязательные проверки перед коммитом — `lint`, `typecheck`, `test`, `build`, `test:e2e`.
 AniList: лимит запросов низкий (30/мин на 31.10.2026) — не гонять живой API в циклах и тестах; для тестов есть мок (`tests/mock-anilist`).

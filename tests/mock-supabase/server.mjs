@@ -8,6 +8,7 @@
 // - профиль создаётся «триггером» при регистрации; занятый ник (без учёта регистра) → запасной user_xxxxxxxx;
 // - PATCH profiles — только своя строка (как RLS) и 409 / 23505 при занятом нике;
 // - anime_list — GET/POST (upsert)/DELETE только своих строк, гостю — 401, проверки статуса и оценки как в базе;
+// - anime_rating_stats — сумма и число оценок (в базе — триггер); Storage avatars — только своя папка, до 1 МБ;
 // - ошибки — { code, error_code, msg } и заголовок X-Supabase-Api-Version.
 
 import { randomUUID } from "node:crypto";
@@ -265,8 +266,64 @@ async function handleAnimeList(req, res, url) {
   return send(res, 405, { message: "method not allowed in mock" });
 }
 
+/** anime_rating_stats: в базе её ведёт триггер, в моке — считаем по anime_list на лету. */
+function handleRatingStats(req, res, url) {
+  if (req.method !== "GET") return send(res, 401, { code: "42501", message: "permission denied for table anime_rating_stats" });
+  const stats = new Map();
+  for (const row of animeList.values()) {
+    if (row.score == null) continue;
+    const current = stats.get(row.anilist_id) ?? { anilist_id: row.anilist_id, score_sum: 0, score_count: 0 };
+    current.score_sum += row.score;
+    current.score_count += 1;
+    stats.set(row.anilist_id, current);
+  }
+  const rows = [...stats.values()].filter((row) => matches(row, [...url.searchParams.entries()]));
+  return sendRows(req, res, 200, rows.map((row) => pick(row, url.searchParams.get("select"))));
+}
+
+/** Storage: бакет avatars, загрузка и удаление — только в своей папке <user id>/…, публичное чтение. */
+const storage = new Map();
+
+async function handleStorage(req, res, path) {
+  const publicMatch = path.match(/^\/storage\/v1\/object\/public\/avatars\/(.+)$/);
+  if (req.method === "GET" && publicMatch) {
+    const file = storage.get(decodeURIComponent(publicMatch[1]));
+    if (!file) return send(res, 404, { message: "Object not found" });
+    res.writeHead(200, { "Content-Type": file.type });
+    return res.end(file.body);
+  }
+  const user = userByToken(req);
+  if (!user) return send(res, 403, { statusCode: "403", error: "Unauthorized", message: "new row violates row-level security policy" });
+
+  const uploadMatch = path.match(/^\/storage\/v1\/object\/avatars\/(.+)$/);
+  if (req.method === "POST" && uploadMatch) {
+    const key = decodeURIComponent(uploadMatch[1]);
+    if (key.split("/")[0] !== user.id) {
+      return send(res, 403, { statusCode: "403", error: "Unauthorized", message: "new row violates row-level security policy" });
+    }
+    const chunks = [];
+    for await (const chunk of req) chunks.push(chunk);
+    const body = Buffer.concat(chunks);
+    if (body.length > 1024 * 1024) return send(res, 413, { statusCode: "413", error: "Payload too large", message: "The object exceeded the maximum allowed size" });
+    if (storage.has(key) && req.headers["x-upsert"] !== "true") return send(res, 409, { statusCode: "409", error: "Duplicate", message: "The resource already exists" });
+    storage.set(key, { body, type: req.headers["content-type"] ?? "application/octet-stream" });
+    return send(res, 200, { Key: `avatars/${key}`, Id: randomUUID() });
+  }
+
+  if (req.method === "DELETE" && path === "/storage/v1/object/avatars") {
+    const { prefixes = [] } = await readJson(req);
+    const removed = [];
+    for (const key of prefixes) {
+      if (key.split("/")[0] === user.id && storage.delete(key)) removed.push({ name: key });
+    }
+    return send(res, 200, removed);
+  }
+  return send(res, 404, { message: `mock storage: ${req.method} ${path}` });
+}
+
 async function handleRest(req, res, path, url) {
   if (path === "/rest/v1/anime_list") return handleAnimeList(req, res, url);
+  if (path === "/rest/v1/anime_rating_stats") return handleRatingStats(req, res, url);
   if (path !== "/rest/v1/profiles") return send(res, 404, { code: "PGRST205", message: "not in mock" });
 
   if (req.method === "GET") {
@@ -308,6 +365,7 @@ createServer(async (req, res) => {
     if (path === "/health") return send(res, 200, { ok: true });
     if (path.startsWith("/auth/v1/")) return await handleAuth(req, res, path, url);
     if (path.startsWith("/rest/v1/")) return await handleRest(req, res, path, url);
+    if (path.startsWith("/storage/v1/")) return await handleStorage(req, res, path);
     return send(res, 404, { message: "not found" });
   } catch (error) {
     console.error("[mock-supabase]", error);

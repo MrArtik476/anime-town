@@ -8,8 +8,10 @@ import { SiteHeader } from "@/components/layout/site-header";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { signOut } from "@/features/auth/actions";
+import { AvatarForm } from "@/features/auth/components/avatar-form";
 import { authLinkClass } from "@/features/auth/components/link-class";
 import { ProfileForm } from "@/features/auth/components/profile-form";
+import { UserAvatar } from "@/features/auth/components/user-avatar";
 import { getCurrentProfile } from "@/features/auth/session";
 import { MyList } from "@/features/list/components/my-list";
 
@@ -36,7 +38,15 @@ async function AccountContent() {
         </h2>
         <div className="mt-5">
           {profile ? (
-            <ProfileForm username={profile.username} displayName={profile.displayName} />
+            <div className="space-y-8">
+              <div className="flex items-start gap-5">
+                <UserAvatar url={profile.avatarUrl} name={profile.username} size={80} />
+                <div className="min-w-0 flex-1">
+                  <AvatarForm hasAvatar={!!profile.avatarUrl} />
+                </div>
+              </div>
+              <ProfileForm username={profile.username} displayName={profile.displayName} />
+            </div>
           ) : (
             <p role="alert" className="text-sm text-destructive">
               Профиль не загрузился. Обновите страницу чуть позже.

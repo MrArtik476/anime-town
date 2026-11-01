@@ -7,6 +7,7 @@ import { siteConfig } from "@/config/site";
 import { getSupabaseEnv } from "@/lib/supabase/env";
 import { createClient } from "@/lib/supabase/server";
 
+import { AVATAR_BUCKET, AVATAR_MAX_BYTES, avatarPath, checkAvatarFile } from "./avatar";
 import { authErrorMessage, GENERIC_AUTH_ERROR, isUniqueViolation } from "./errors";
 import { getCurrentUser } from "./session";
 import type { FormState } from "./state";
@@ -171,4 +172,51 @@ export async function updateProfile(_previous: FormState, formData: FormData): P
 
   refresh();
   return { status: "success", message: "Профиль сохранён.", values };
+}
+
+export async function uploadAvatar(_previous: FormState, formData: FormData): Promise<FormState> {
+  if (!getSupabaseEnv()) return NOT_CONFIGURED;
+  const user = await getCurrentUser();
+  if (!user) return { status: "error", message: authErrorMessage({ code: "session_not_found" }) };
+
+  const file = formData.get("avatar");
+  const size = file instanceof File ? file.size : 0;
+  // Размер — до чтения файла в память; тип — по первым байтам.
+  const bytes = file instanceof File && size > 0 && size <= AVATAR_MAX_BYTES ? new Uint8Array(await file.arrayBuffer()) : null;
+  const check = checkAvatarFile(size, bytes);
+  if (!check.ok) return { status: "error", fieldErrors: { avatar: check.message } };
+
+  const supabase = await createClient();
+  const path = avatarPath(user.id);
+  const { error: uploadError } = await supabase.storage
+    .from(AVATAR_BUCKET)
+    .upload(path, bytes as Uint8Array, { contentType: check.type, upsert: true, cacheControl: "3600" });
+  if (uploadError) {
+    console.error("[avatar] загрузка", uploadError.message);
+    return { status: "error", message: GENERIC_AUTH_ERROR };
+  }
+
+  // Новый адрес на каждую загрузку (?v=…) — браузер и CDN не покажут старую картинку.
+  const publicUrl = `${supabase.storage.from(AVATAR_BUCKET).getPublicUrl(path).data.publicUrl}?v=${Date.now()}`;
+  const { error } = await supabase.from("profiles").update({ avatar_url: publicUrl }).eq("id", user.id);
+  if (error) {
+    console.error("[avatar] профиль", error.code);
+    return { status: "error", message: GENERIC_AUTH_ERROR };
+  }
+  refresh();
+  return { status: "success", message: "Аватар обновлён." };
+}
+
+export async function removeAvatar(): Promise<FormState> {
+  if (!getSupabaseEnv()) return NOT_CONFIGURED;
+  const user = await getCurrentUser();
+  if (!user) return { status: "error", message: authErrorMessage({ code: "session_not_found" }) };
+
+  const supabase = await createClient();
+  const { error: removeError } = await supabase.storage.from(AVATAR_BUCKET).remove([avatarPath(user.id)]);
+  if (removeError) console.error("[avatar] удаление файла", removeError.message);
+  const { error } = await supabase.from("profiles").update({ avatar_url: null }).eq("id", user.id);
+  if (error) return { status: "error", message: GENERIC_AUTH_ERROR };
+  refresh();
+  return { status: "success", message: "Аватар удалён." };
 }

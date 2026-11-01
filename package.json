@@ -13,6 +13,7 @@
     "test:e2e": "playwright test",
     "translate": "tsx scripts/translate-backfill.ts",
     "perf": "node scripts/perf-measure.mjs",
+    "rls:check": "node scripts/rls-check.mjs",
     "db:types": "supabase gen types typescript --project-id bhzshfkhpumyojxuygsc --schema public > src/types/database.ts"
   },
   "dependencies": {
