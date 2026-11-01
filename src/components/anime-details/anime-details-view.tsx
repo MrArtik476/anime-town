@@ -1,5 +1,7 @@
 import { Suspense } from "react";
 
+import { Skeleton } from "@/components/ui/skeleton";
+import { EpisodesList } from "@/features/episodes/components/episodes-list";
 import { ListPanel, ListPanelSkeleton } from "@/features/list/components/list-panel";
 import { RatingSummaryCard } from "@/features/list/components/rating-summary";
 import type { AnimeDetails } from "@/types/anime";
@@ -16,6 +18,10 @@ export function AnimeDetailsView({ anime }: { anime: AnimeDetails }) {
 
       <div className="mx-auto mt-10 grid max-w-7xl gap-10 px-4 sm:px-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
         <div className="min-w-0 space-y-10">
+          <Suspense fallback={<Skeleton aria-hidden className="h-24 rounded-xl" />}>
+            <EpisodesList animeId={anime.id} />
+          </Suspense>
+
           <section aria-labelledby="description-title">
             <h2 id="description-title" className="font-heading text-xl font-semibold tracking-tight">
               Описание

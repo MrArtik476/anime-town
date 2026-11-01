@@ -30,6 +30,8 @@ const PNG = Buffer.from(
 const results = [];
 const check = (name, ok, detail = "") => results.push(`${ok ? "✅" : "❌"} ${name}${detail ? ` — ${detail}` : ""}`);
 const tag = randomUUID().slice(0, 8);
+// Несуществующий тайтл для временных серий (удаляются в finally).
+const PROBE_ANIME_ID = 999_999_990;
 const created = [];
 
 async function makeUser(letter) {
@@ -123,6 +125,34 @@ try {
   const publicUrl = admin.storage.from("avatars").getPublicUrl(`${A.id}/avatar`).data.publicUrl;
   check("аватар доступен по публичной ссылке", (await fetch(publicUrl)).status === 200);
 
+  // ---- episodes / subtitles: видны только серии с правами, пишет только сервер ----
+  const { data: eps, error: epsError } = await admin
+    .from("episodes")
+    .insert([
+      { anilist_id: PROBE_ANIME_ID, number: 1, license_status: "own", hls_url: "/media/test/master.m3u8" },
+      { anilist_id: PROBE_ANIME_ID, number: 2, license_status: "none", hls_url: "/media/test/master.m3u8" },
+    ])
+    .select("id, number");
+  if (epsError) throw new Error(`episodes seed: ${epsError.message}`);
+  const hidden = eps.find((episode) => episode.number === 2);
+  await admin.from("subtitles").insert(
+    eps.map((episode) => ({ episode_id: episode.id, lang: "ru", label: "Русские", url: "/media/test/subtitles.ru.vtt" })),
+  );
+  const anonEps = await anon.from("episodes").select("number").eq("anilist_id", PROBE_ANIME_ID);
+  check("гость видит только серии с правами", anonEps.data?.length === 1 && anonEps.data[0].number === 1, rows(anonEps));
+  const anonSubs = await anon.from("subtitles").select("episode_id").eq("episode_id", hidden.id);
+  check("субтитры серии без прав не видны", anonSubs.data?.length === 0, rows(anonSubs));
+  const userEpInsert = await A.client.from("episodes").insert({ anilist_id: PROBE_ANIME_ID, number: 3, license_status: "own", hls_url: "/media/x.m3u8" });
+  check("пользователь не добавляет серии", !!userEpInsert.error, userEpInsert.error?.code ?? "ДОБАВИЛ");
+  const userEpUpdate = await A.client.from("episodes").update({ license_status: "none" }).eq("anilist_id", PROBE_ANIME_ID).select("id");
+  check("пользователь не меняет серии", blocked(userEpUpdate), rows(userEpUpdate));
+  const anonSubInsert = await anon.from("subtitles").insert({ episode_id: eps[0].id, lang: "en", label: "x", url: "/media/x.vtt" });
+  check("гость не добавляет субтитры", !!anonSubInsert.error, anonSubInsert.error?.code ?? "ДОБАВИЛ");
+  const badUrl = await admin.from("episodes").insert({ anilist_id: PROBE_ANIME_ID, number: 4, license_status: "own", hls_url: "http://evil.example/x.m3u8" });
+  check("адрес плейлиста только https:// или /media/", badUrl.error?.code === "23514", badUrl.error?.code ?? "ПРИНЯТ");
+  const noAttribution = await admin.from("episodes").insert({ anilist_id: PROBE_ANIME_ID, number: 5, license_status: "open_license", hls_url: "/media/x.m3u8" });
+  check("открытая лицензия без атрибуции отклоняется", noAttribution.error?.code === "23514", noAttribution.error?.code ?? "ПРИНЯТА");
+
   // ---- anime_localizations: пишет только service role ----
   const trUser = await A.client.from("anime_localizations").update({ title_ru: "x" }).eq("anilist_id", 1).select("anilist_id");
   check("пользователь не меняет переводы", blocked(trUser), rows(trUser));
@@ -147,6 +177,7 @@ try {
 } catch (error) {
   results.push(`⚠️ сбой проверки: ${error.message}`);
 } finally {
+  await admin.from("episodes").delete().eq("anilist_id", PROBE_ANIME_ID);
   for (const id of created) {
     const { data: files } = await admin.storage.from("avatars").list(id);
     if (files?.length) await admin.storage.from("avatars").remove(files.map((file) => `${id}/${file.name}`));
@@ -159,7 +190,11 @@ try {
     .from("profiles")
     .select("id", { count: "exact", head: true })
     .like("username", `rlsprobe_%_${tag}`);
-  results.push(`🧹 осталось: профилей ${profilesLeft}, файлов аватаров ${filesLeft}`);
+  const { count: episodesLeft } = await admin
+    .from("episodes")
+    .select("id", { count: "exact", head: true })
+    .eq("anilist_id", PROBE_ANIME_ID);
+  results.push(`🧹 осталось: профилей ${profilesLeft}, файлов аватаров ${filesLeft}, временных серий ${episodesLeft}`);
   console.log(results.join("\n"));
   if (results.some((line) => line.startsWith("❌") || line.startsWith("⚠️"))) process.exitCode = 1;
 }

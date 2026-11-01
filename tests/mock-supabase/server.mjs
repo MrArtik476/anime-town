@@ -321,7 +321,35 @@ async function handleStorage(req, res, path) {
   return send(res, 404, { message: `mock storage: ${req.method} ${path}` });
 }
 
+/**
+ * Серии (как миграция 20261101210000): видны только license_status <> 'none'. Тайтл 1 — две серии
+ * на тестовом ролике /media/test/ (собственный, сгенерирован scripts/build-test-hls.mjs) и одна без прав.
+ */
+const EPISODES = [
+  { id: 101, anilist_id: 1, number: 1, title: "Начало", duration_sec: 6, license_status: "own", hls_url: "/media/test/master.m3u8", attribution: null, attribution_url: null },
+  { id: 102, anilist_id: 1, number: 2, title: "Продолжение", duration_sec: 6, license_status: "own", hls_url: "/media/test/master.m3u8", attribution: null, attribution_url: null },
+  { id: 103, anilist_id: 1, number: 3, title: "Без прав", duration_sec: 6, license_status: "none", hls_url: "/media/test/master.m3u8", attribution: null, attribution_url: null },
+];
+const SUBTITLES = [
+  { id: 1, episode_id: 101, lang: "ru", label: "Русские", url: "/media/test/subtitles.ru.vtt", is_default: true },
+  { id: 2, episode_id: 101, lang: "en", label: "English", url: "/media/test/subtitles.en.vtt", is_default: false },
+  { id: 3, episode_id: 103, lang: "ru", label: "Русские", url: "/media/test/subtitles.ru.vtt", is_default: true },
+];
+const visibleEpisodeIds = new Set(EPISODES.filter((e) => e.license_status !== "none").map((e) => e.id));
+
+function handleReadOnly(req, res, url, rows) {
+  if (req.method !== "GET") return send(res, 401, { code: "42501", message: "permission denied" });
+  let result = rows.filter((row) => matches(row, [...url.searchParams.entries()]));
+  const order = url.searchParams.get("order");
+  if (order?.startsWith("number")) result = [...result].sort((a, b) => a.number - b.number);
+  if (order?.startsWith("is_default.desc")) result = [...result].sort((a, b) => Number(b.is_default) - Number(a.is_default));
+  const limit = Number(url.searchParams.get("limit") ?? Infinity);
+  return sendRows(req, res, 200, result.slice(0, limit).map((row) => pick(row, url.searchParams.get("select"))));
+}
+
 async function handleRest(req, res, path, url) {
+  if (path === "/rest/v1/episodes") return handleReadOnly(req, res, url, EPISODES.filter((e) => e.license_status !== "none"));
+  if (path === "/rest/v1/subtitles") return handleReadOnly(req, res, url, SUBTITLES.filter((s) => visibleEpisodeIds.has(s.episode_id)));
   if (path === "/rest/v1/anime_list") return handleAnimeList(req, res, url);
   if (path === "/rest/v1/anime_rating_stats") return handleRatingStats(req, res, url);
   if (path !== "/rest/v1/profiles") return send(res, 404, { code: "PGRST205", message: "not in mock" });

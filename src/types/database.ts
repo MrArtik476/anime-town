@@ -115,6 +115,48 @@ export type Database = {
         }
         Relationships: []
       }
+      episodes: {
+        Row: {
+          anilist_id: number
+          attribution: string | null
+          attribution_url: string | null
+          created_at: string
+          duration_sec: number | null
+          hls_url: string
+          id: number
+          license_status: string
+          number: number
+          title: string | null
+          updated_at: string
+        }
+        Insert: {
+          anilist_id: number
+          attribution?: string | null
+          attribution_url?: string | null
+          created_at?: string
+          duration_sec?: number | null
+          hls_url: string
+          id?: never
+          license_status?: string
+          number: number
+          title?: string | null
+          updated_at?: string
+        }
+        Update: {
+          anilist_id?: number
+          attribution?: string | null
+          attribution_url?: string | null
+          created_at?: string
+          duration_sec?: number | null
+          hls_url?: string
+          id?: number
+          license_status?: string
+          number?: number
+          title?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           avatar_url: string | null
@@ -144,6 +186,41 @@ export type Database = {
           username?: string
         }
         Relationships: []
+      }
+      subtitles: {
+        Row: {
+          episode_id: number
+          id: number
+          is_default: boolean
+          label: string
+          lang: string
+          url: string
+        }
+        Insert: {
+          episode_id: number
+          id?: never
+          is_default?: boolean
+          label: string
+          lang: string
+          url: string
+        }
+        Update: {
+          episode_id?: number
+          id?: number
+          is_default?: boolean
+          label?: string
+          lang?: string
+          url?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "subtitles_episode_id_fkey"
+            columns: ["episode_id"]
+            isOneToOne: false
+            referencedRelation: "episodes"
+            referencedColumns: ["id"]
+          },
+        ]
       }
     }
     Views: {
