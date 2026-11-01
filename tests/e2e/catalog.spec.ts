@@ -139,6 +139,18 @@ test.describe("Каталог", () => {
     await desktopFilter(page, "Жанр").focus();
     await expect(desktopFilter(page, "Жанр")).toBeFocused();
   });
+
+  test("текст, набранный до гидратации поля, не теряется при поиске по Enter", async ({ page }) => {
+    await page.goto("/catalog");
+    await expect(cards(page).first()).toBeVisible();
+    // Набранное до гидратации остаётся в DOM, но React о нём не знает (onChange не срабатывал).
+    // Моделируем это напрямую: значение в DOM без события input.
+    await search(page).evaluate((input: HTMLInputElement) => {
+      input.value = "Test Anime 1";
+    });
+    await search(page).press("Enter");
+    await expect(page).toHaveURL(/q=Test\+Anime\+1/);
+  });
 });
 
 test.describe("API каталога", () => {

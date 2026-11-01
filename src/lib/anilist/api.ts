@@ -1,4 +1,5 @@
 import { cacheLife, cacheTag } from "next/cache";
+import { connection } from "next/server";
 import { cache } from "react";
 
 import {
@@ -180,6 +181,9 @@ export const getLocalizedAnimeById = cache(async (id: number): Promise<AniListRe
   if (!result.ok) return result;
 
   const anime = result.data;
+  // Перевод читается при каждом запросе (Date.now() при сверке с Shikimori): явно помечаем данные
+  // как динамические, иначе Next.js пытается пререндерить их и сообщает о нестабильном Date.now().
+  await connection();
   const { records } = await loadLocalizations([anime]);
   const record = records.get(anime.id);
   const localized = resolveTitles(anime, record);
