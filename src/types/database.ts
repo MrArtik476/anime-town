@@ -55,6 +55,27 @@ export type Database = {
           },
         ]
       }
+      anime_rating_stats: {
+        Row: {
+          anilist_id: number
+          score_count: number
+          score_sum: number
+          updated_at: string
+        }
+        Insert: {
+          anilist_id: number
+          score_count?: number
+          score_sum?: number
+          updated_at?: string
+        }
+        Update: {
+          anilist_id?: number
+          score_count?: number
+          score_sum?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
       anime_localizations: {
         Row: {
           anilist_id: number

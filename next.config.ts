@@ -6,6 +6,10 @@ const isE2E = process.env.ANIME_TOWN_E2E === "1";
 const nextConfig: NextConfig = {
   cacheComponents: true,
   partialPrefetching: true,
+  experimental: {
+    // Аватар до 1 МБ (лимит бакета) + служебные поля формы: стандартного 1 МБ не хватает.
+    serverActions: { bodySizeLimit: "2mb" },
+  },
   distDir: isE2E ? ".next-e2e" : ".next",
   images: {
     // Картинки AniList выводятся с `unoptimized` (см. lib/anilist/images.ts): браузер грузит их с CDN AniList

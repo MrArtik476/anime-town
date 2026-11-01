@@ -1,5 +1,7 @@
 "use server";
 
+import { refresh, updateTag } from "next/cache";
+
 import { getCurrentUser } from "@/features/auth/session";
 import { getLocalizedAnimeById } from "@/lib/anilist/api";
 import { parseAnimeId } from "@/lib/anime/ids";
@@ -7,6 +9,7 @@ import { getSupabaseEnv } from "@/lib/supabase/env";
 import { createClient } from "@/lib/supabase/server";
 
 import { isEmptyInput, type ListEntry, parseListInput, rowToEntry } from "./model";
+import { ratingTag } from "./rating";
 
 export type SaveListResult = { ok: true; entry: ListEntry | null } | { ok: false; message: string };
 
@@ -32,6 +35,9 @@ export async function saveListEntry(rawAnimeId: unknown, rawInput: unknown): Pro
       console.error("[list] не удалось убрать из списка", error.code);
       return { ok: false, message: FAILED };
     }
+    // Средняя оценка сайта пересчитана триггером — показать её сразу.
+    updateTag(ratingTag(animeId));
+    refresh();
     return { ok: true, entry: null };
   }
 
@@ -57,5 +63,7 @@ export async function saveListEntry(rawAnimeId: unknown, rawInput: unknown): Pro
     console.error("[list] не удалось сохранить", error?.code);
     return { ok: false, message: FAILED };
   }
+  updateTag(ratingTag(animeId));
+  refresh();
   return { ok: true, entry: rowToEntry(data) };
 }
