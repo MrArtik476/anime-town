@@ -33,4 +33,4 @@ LCP < 2.5 с, INP < 200 мс, CLS < 0.1 на мобильном 4G для гла
 - `preload="metadata"`, постер серии, HLS.js грузится только на странице просмотра. Стартовое качество — авто (ABR).
 
 ## Измерение
-Lighthouse (mobile) и Vercel Speed Insights до/после; цифры фиксировать в `Anime Town/10 - Тестирование/Производительность.md`.
+Lighthouse (mobile) на локальной production-сборке (`npm run build && npm run start`) до/после; цифры фиксировать в `Anime Town/10 - Тестирование/Производительность.md`.

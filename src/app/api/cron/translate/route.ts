@@ -3,12 +3,11 @@ import { timingSafeEqual } from "node:crypto";
 import type { NextRequest } from "next/server";
 
 import { runTranslationBackfill } from "@/lib/localization/backfill";
+import { parseBackfillLimit } from "@/lib/localization/backfill-run";
 
-// Vercel Cron (vercel.json) раз в сутки вызывает GET с заголовком Authorization: Bearer $CRON_SECRET.
-// https://vercel.com/docs/cron-jobs/manage-cron-jobs#securing-cron-jobs
+// Ручной запуск фонового заполнения (ADR-017): GET с заголовком Authorization: Bearer $CRON_SECRET.
+// По расписанию заполнение запускает GitHub Actions скриптом `npm run translate` (тот же runTranslationBackfill).
 export const maxDuration = 300;
-
-const MAX_LIMIT = 100;
 
 function authorized(request: NextRequest): boolean {
   const secret = process.env.CRON_SECRET;
@@ -27,17 +26,13 @@ export async function GET(request: NextRequest) {
     return Response.json({ ok: false, error: "unauthorized" }, { status: 401 });
   }
 
-  const rawLimit = request.nextUrl.searchParams.get("limit");
-  const limit = rawLimit === null ? undefined : Number(rawLimit);
-  if (limit !== undefined && (!Number.isInteger(limit) || limit < 1 || limit > MAX_LIMIT)) {
-    return Response.json(
-      { ok: false, error: "invalid_limit", message: `limit должен быть целым числом от 1 до ${MAX_LIMIT}` },
-      { status: 400 },
-    );
+  const parsed = parseBackfillLimit(request.nextUrl.searchParams.get("limit"));
+  if (!parsed.ok) {
+    return Response.json({ ok: false, error: "invalid_limit", message: parsed.message }, { status: 400 });
   }
 
   try {
-    const report = await runTranslationBackfill({ limit });
+    const report = await runTranslationBackfill({ limit: parsed.limit });
     console.info("[translator] backfill", JSON.stringify(report));
     return Response.json({ ok: true, report }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {

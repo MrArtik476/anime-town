@@ -65,7 +65,8 @@ export async function fetchTranslationCandidates(): Promise<TranslationCandidate
 }
 
 /**
- * Фоновое заполнение машинных переводов (Vercel Cron → /api/cron/translate).
+ * Фоновое заполнение машинных переводов: по расписанию — GitHub Actions → `npm run translate`
+ * (scripts/translate-backfill.ts), вручную — `GET /api/cron/translate` (ADR-017).
  * Порядок источников не меняется: сначала сверка с Shikimori, переводятся только тайтлы без его описания
  * и без перевода текущего английского текста. Перед каждой пачкой — проверка остатка квоты.
  * Идемпотентно: повторный или пропущенный запуск безопасен.

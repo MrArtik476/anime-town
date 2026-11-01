@@ -1,0 +1,49 @@
+# Фоновое заполнение машинных переводов без хостинга (ADR-017, заменяет Vercel Cron из ADR-015).
+# Раз в сутки GitHub Actions запускает `npm run translate` — тот же runTranslationBackfill, что и
+# /api/cron/translate, — и переводы пишутся прямо в Supabase (anime_localizations, service role).
+#
+# Секреты репозитория (Settings → Secrets and variables → Actions):
+#   NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, TRANSLATOR_PROVIDER (deepl), TRANSLATOR_API_KEY.
+# Без них скрипт ничего не тратит и завершается с кодом 1 (no_translator / no_store).
+name: Translate backfill
+
+on:
+  schedule:
+    # 03:17 UTC — не ровно в начале часа: на :00 у GitHub пик очереди и задержки запуска.
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: "Сколько тайтлов перевести (1–100; пусто — все кандидаты)"
+        required: false
+        default: ""
+        type: string
+
+# Не больше одного заполнения одновременно; запущенное не отменяем, следующее ждёт.
+concurrency:
+  group: translate-backfill
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  translate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Перевод описаний (DeepL → anime_localizations)
+        # Ввод передаётся через env, а не подстановкой в команду; скрипт сам проверяет диапазон.
+        run: npm run translate -- --limit="$LIMIT"
+        env:
+          LIMIT: ${{ inputs.limit }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          TRANSLATOR_PROVIDER: ${{ secrets.TRANSLATOR_PROVIDER }}
+          TRANSLATOR_API_KEY: ${{ secrets.TRANSLATOR_API_KEY }}

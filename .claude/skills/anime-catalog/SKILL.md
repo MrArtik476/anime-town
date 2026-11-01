@@ -12,7 +12,7 @@ description: Use when working on the Anime Town catalog — listing, search, fil
 ## Синхронизация
 - `src/features/catalog/anilist-sync.ts`: постраничная выборка `Page(page, perPage: 50) { media(type: ANIME, sort: ...) }`, upsert по `anilist_id`.
 - Поля: `id`, `idMal`, `title { romaji english native }`, `synonyms`, `description(asHtml:false)`, `coverImage { extraLarge large color }`, `bannerImage`, `format`, `status`, `season`, `seasonYear`, `episodes`, `duration`, `genres`, `averageScore`, `popularity`, `nextAiringEpisode`, `startDate`.
-- Запуск — Route Handler, защищённый секретом, + Vercel Cron. Пауза между страницами, обработка 429 с повтором.
+- Запуск — скрипт `scripts/*.ts` (`tsx`) по расписанию в GitHub Actions, как `npm run translate` (ADR-017); Route Handler под секретом — только для ручного запуска. Пауза между страницами, обработка 429 с повтором.
 - Русские названия/описания — свои поля в `anime` (`title_ru`, `description_ru`), заполняются вручную/из админки, синхронизация их не затирает.
 - Slug: транслит/romaji + `anilist_id` для уникальности.
 

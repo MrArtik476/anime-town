@@ -16,8 +16,8 @@ export function getCatalogRateLimiter(): RateLimiter {
 }
 
 /**
- * IP клиента. На Vercel `x-forwarded-for` выставляет платформа (первый адрес — клиент);
- * при собственном хостинге заголовок должен приходить от доверенного обратного прокси.
+ * IP клиента: первый адрес `x-forwarded-for`. Заголовок должен выставлять доверенный обратный прокси
+ * или платформа хостинга — какой именно, проверяется при выборе хостинга (этап 8, ADR-017).
  */
 export function getClientIp(headers: Headers): string {
   const forwarded = headers.get("x-forwarded-for")?.split(",")[0]?.trim();
