@@ -3,7 +3,7 @@
 ## 1. Общая схема
 
 ```
-Browser ──► Vercel (Next.js 16, App Router)
+Browser ──► Next.js 16 (App Router) — локально `next dev` / `next start`; хостинг выбирается на этапе 8 (ADR-017)
               ├─ Server Components / Route Handlers / Server Actions
               │     ├─► Supabase Postgres (RLS)  — пользователи, прогресс, комментарии, оценки, каталог-кэш
               │     ├─► Supabase Auth            — сессии через @supabase/ssr (cookies)
@@ -12,6 +12,9 @@ Browser ──► Vercel (Next.js 16, App Router)
               └─ Client Components
                     ├─ HLS.js плеер + субтитры (WebVTT)
                     └─ Motion, shadcn/ui
+
+GitHub Actions ──► ci.yml             — lint, typecheck, unit, build; E2E на моках (каждый push в main и PR)
+               └─► translate-cron.yml — раз в сутки `npm run translate` → DeepL → Supabase (без сервера приложения)
 ```
 
 Принципы:
@@ -30,6 +33,7 @@ src/
     catalog/page.tsx       /catalog — поиск, фильтры, сортировка, «Загрузить ещё»
     anime/[id]/            /anime/[id] — страница тайтла, not-found.tsx
     api/catalog/route.ts   GET следующих страниц каталога (JSON)
+    api/cron/translate/    GET ручного запуска фонового перевода (CRON_SECRET)
     not-found.tsx, error.tsx
   components/
     ui/                    shadcn/ui: button, input, sheet, skeleton
@@ -45,12 +49,18 @@ src/
     anilist/               client.ts (HTTP, повторы, ошибки), queries.ts (GraphQL), types.ts,
                            errors.ts, api.ts (кэшируемые функции данных)
     anime/                 mappers.ts, format.ts, catalog-params.ts, season.ts, ids.ts
-    supabase/              клиенты (пока не используются)
+    supabase/              клиенты: браузер, сервер, admin (service role — только запись переводов)
+    shikimori/, localization/  русские названия и описания, машинный перевод, фоновое заполнение
   types/                   anime.ts (доменные типы), database.ts
+scripts/
+  translate-backfill.ts    `npm run translate` — фоновый перевод без сервера (GitHub Actions, локально)
+.github/workflows/
+  ci.yml                   lint, typecheck, unit, build; E2E на моках — отдельная job
+  translate-cron.yml       раз в сутки + workflow_dispatch → npm run translate
 tests/
   unit/                    Vitest: клиент, маппинг, форматирование, параметры, debounce, компоненты
-  e2e/                     Playwright: главная, каталог, страница аниме, адаптивность (5 разрешений)
-  mock-anilist/            мок-сервер GraphQL и фикстуры для E2E
+  e2e/                     Playwright: главная, каталог, страница аниме, перевод, скрипт translate, адаптивность
+  mock-anilist/, mock-shikimori/, mock-deepl/   мок-серверы и фикстуры для E2E
 ```
 
 ### Каталог и AniList
@@ -68,7 +78,7 @@ tests/
 - **Клиент** (`client.ts`): POST JSON, тайм-аут 5 с; сетевые сбои и 5xx — 1 повтор через 0,5 с; 429 — ждёт `Retry-After`, если он ≤ 2 с, иначе `RATE_LIMITED`; GraphQL-ошибка 404 → `NOT_FOUND`. Худший случай ожидания — 12 с (5 + 2 + 5, `MAX_WAIT_MS`). Переменные со значением `null` не отправляются: AniList трактует явный `null` как фильтр.
 - **Запросы** (`queries.ts`, типизированные строки): `HomeCollections` — три подборки одним запросом через алиасы; `CatalogPage` — поиск, фильтры, сортировка, страница; `Genres`; `AnimeDetails` — тайтл со студиями и связями. Везде `isAdult: false` и исключён жанр `Hentai`.
 - **Нормализация** (`mappers.ts`): русское название ищется в синонимах AniList (кириллица без украинских и белорусских букв), затем английское → ромадзи → оригинальное; пустые и некорректные значения → `null`; описание очищается от HTML, HTML-сущностей (именованных и числовых) и хвостов «(Source: …)» / «[Written by MAL Rewrite]».
-- **Обложки** с `s4.anilist.co` выводятся с `unoptimized` (`lib/anilist/images.ts`): AniList уже отдаёт готовые `large`/`extraLarge`, оптимизатор Vercel был бы лишними платными преобразованиями.
+- **Обложки** с `s4.anilist.co` выводятся с `unoptimized` (`lib/anilist/images.ts`): AniList уже отдаёт готовые `large`/`extraLarge`, оптимизатор изображений Next.js был бы лишними преобразованиями (на любом хостинге — нагрузка или плата).
 - **URL — источник состояния каталога**: `q`, `genre`, `year`, `season`, `format`, `status`, `sort` (`popularity`, `trending`, `score`, `newest`, `episodes`, `relevance`). Изменение фильтра → `router.replace` → сервер отдаёт новую первую страницу. Некорректные параметры отбрасываются. Поиск — debounce 400 мс, минимум 2 символа, Enter — сразу.
 - **Возврат из тайтла в каталог** сохраняет фильтры: последний адрес каталога хранится в `sessionStorage`.
 
@@ -76,8 +86,10 @@ tests/
 
 ```
 AniList (idMal) ──► lib/localization/service.ts ──► anime_localizations (Supabase; без ключа — память процесса)
-                          │ новые и устаревшие                          ▲ Vercel Cron → /api/cron/translate → DeepL
-                          └──► lib/shikimori (пачки по 50, User-Agent, 4 rps / 80 rpm)
+                          │ новые и устаревшие                          ▲ lib/localization/backfill.ts → DeepL
+                          └──► lib/shikimori (пачки по 50, User-Agent, 4 rps / 80 rpm)        ▲
+                                     GitHub Actions (раз в сутки) → npm run translate ──┤
+                                     вручную: GET /api/cron/translate (CRON_SECRET) ────┘
 ```
 
 - **Сопоставление**: `idMal` из AniList = id тайтла на Shikimori. Тайтлы без `idMal` остаются с данными AniList.
@@ -86,7 +98,7 @@ AniList (idMal) ──► lib/localization/service.ts ──► anime_localizati
 - **Хранилище** — таблица `anime_localizations`; строка сверяется с Shikimori, если её нет, сменился MAL id или прошло 7 дней. Описание Shikimori вытесняет машинный перевод; если описания на Shikimori нет, перевод сохраняется. Сбой Shikimori или базы не ломает страницу: показываются данные AniList, а результат кэшируется на минуты, а не на часы.
 - **Где применяется**: подборки главной (одна пачка на 36 тайтлов), страницы каталога и «Загрузить ещё» — внутри кэшируемых функций `lib/anilist/api.ts`; страница тайтла — `getLocalizedAnimeById`: данные AniList из кэша, перевод читается из хранилища при каждом показе, поэтому готовый машинный перевод виден сразу.
 - **Машинный перевод** — интерфейс `Translator` (`lib/localization/translator.ts`: `translate(texts[])` пачкой, `getUsage()`, пределы пачки), реестр провайдеров по `TRANSLATOR_PROVIDER`; сейчас `deepl` (`translators/deepl.ts`), Yandex добавляется ещё одной записью реестра. Ключ только на сервере.
-- **Фоновое заполнение** (`lib/localization/backfill.ts`, `GET /api/cron/translate`, Vercel Cron раз в сутки): трендовые и популярные тайтлы AniList (до 100, один запрос) → сверка с Shikimori → переводятся только тайтлы без его описания и без перевода текущего текста (хеш) → пачки ≤ 50 текстов и ≤ 100 KiB → запись `source='machine'`, `source_hash`, `translator`. На странице тайтла перевод не запускается — без перевода показывается оригинал с пометкой, без ожидания.
+- **Фоновое заполнение** (`lib/localization/backfill.ts`; по расписанию — GitHub Actions `translate-cron.yml` раз в сутки запускает `scripts/translate-backfill.ts` = `npm run translate`, вручную — `GET /api/cron/translate`; оба вызывают один `runTranslationBackfill`, общие разбор `limit` и код результата — `backfill-run.ts`): трендовые и популярные тайтлы AniList (до 100, один запрос) → сверка с Shikimori → переводятся только тайтлы без его описания и без перевода текущего текста (хеш) → пачки ≤ 50 текстов и ≤ 100 KiB → запись `source='machine'`, `source_hash`, `translator`. На странице тайтла перевод не запускается — без перевода показывается оригинал с пометкой, без ожидания.
 - **Бюджет**: перед каждой пачкой — остаток по `GET /v2/usage` (кэш 5 минут, расход запуска учитывается локально); тратится не больше `min(TRANSLATE_MONTHLY_CHAR_LIMIT = 450 000, лимит DeepL) − израсходовано` и не больше `TRANSLATE_RUN_CHAR_LIMIT = 15 000` за запуск. Свой счётчик в базе не нужен: DeepL считает расход всего ключа точнее.
 - **Ошибки DeepL**: 403 → `AUTH`, 456 → `QUOTA_EXCEEDED` (остаток обнуляется, запуск останавливается; следующий запуск проверит `/v2/usage`), 429/529/5xx/таймаут → до 3 повторов с паузой 1 → 2 → 4 с (jitter, `Retry-After`), 400/413 → пачка пропускается. Ошибка переводчика не влияет на страницы — они переводчик не вызывают.
 - **Поиск на русском**: запрос с кириллицей ищется на Shikimori (до 50 MAL id), затем AniList `Page(media(idMal_in: …))` с теми же фильтрами; «по совпадению» — порядок Shikimori, страницы по 24 нарезаются у нас. Shikimori недоступен — обычный поиск AniList (он находит русские синонимы). Латиница ищется как раньше.
@@ -151,7 +163,7 @@ tests/e2e/                 Playwright
 - **Админка**: доступ по `profiles.role = 'admin'`, проверка и в RLS, и в layout.
 
 ## 5. Решения (ADR кратко)
-- ADR-001 Next.js App Router вместо CRA — SSR/SEO для каталога, Vercel-нативность.
+- ADR-001 Next.js App Router вместо CRA — SSR/SEO для каталога. (Довод «Vercel-нативность» снят ADR-017: приложение не привязано к хостингу.)
 - ADR-002 Supabase вместо MongoDB+Express — Auth, Storage, RLS из коробки, меньше своего бэкенда.
 - ADR-003 TypeScript 6.0.x — TS 7 пока несовместим с typescript-eslint (`<6.1.0`).
 - ADR-004 Только лицензированный видеоконтент; поле `license_status` обязательно.
@@ -161,11 +173,12 @@ tests/e2e/                 Playwright
 - ADR-008 Защита `main` организационная (GitHub Free).
 - ADR-009 Каталог этапа 2 читает AniList с сервера (кэш `use cache`, данные при запросе, не при сборке); собственная таблица `anime` и синхронизация — после подключения Supabase. Причины: лимит AniList 30 запросов/мин, сборка без сетевой зависимости, нет Supabase-проекта.
 - ADR-010 E2E на production-сборке с мок-сервером AniList (`ANILIST_GRAPHQL_URL`) — тесты не зависят от сети и лимитов.
-- ADR-011 Лимит запросов каталога по IP — в `proxy.ts`, за интерфейсом `RateLimiter`. Причины: AniList даёт ~30 запросов/мин на весь сервер; только proxy может ответить настоящим 429 до потоковой отрисовки страницы; интерфейс в форме `@upstash/ratelimit` позволяет заменить in-memory счётчик общим хранилищем (Upstash/Supabase), когда экземпляров станет несколько. IP берётся из `x-forwarded-for` (на Vercel его выставляет платформа).
+- ADR-011 Лимит запросов каталога по IP — в `proxy.ts`, за интерфейсом `RateLimiter`. Причины: AniList даёт ~30 запросов/мин на весь сервер; только proxy может ответить настоящим 429 до потоковой отрисовки страницы; интерфейс в форме `@upstash/ratelimit` позволяет заменить in-memory счётчик общим хранилищем (Upstash/Supabase), когда экземпляров станет несколько. IP берётся из `x-forwarded-for`; какой прокси его выставляет и можно ли ему доверять — проверяется при выборе хостинга (этап 8, ADR-017).
 - ADR-012 Shikimori — источник русских названий и описаний. Причины: в AniList нет русских полей; у Shikimori публичный GraphQL без ключа, сопоставление по MAL id однозначное, описания редакторские. Ограничения: 5 rps / 90 rpm, обязательный узнаваемый User-Agent, глубина запроса ≤ 5. Запросы только с сервера, пачками по 50, через собственный ограничитель (4 rps / 80 rpm), с атрибуцией «Описание: Shikimori» и ссылкой.
-- ADR-013 Переводы хранятся в своей таблице `anime_localizations` (Supabase), а не только в кэше Next.js. Причины: перевод платный и делается один раз на тайтл; кэш `use cache` не общий между экземплярами Vercel; `source_hash` позволяет обновить перевод, когда AniList меняет английский текст. Чтение открыто всем (публичный каталог), запись — только сервер (service role); Data API открыт вручную и только на чтение. Без ключа service role приложение работает с хранилищем в памяти процесса.
+- ADR-013 Переводы хранятся в своей таблице `anime_localizations` (Supabase), а не только в кэше Next.js. Причины: перевод платный и делается один раз на тайтл; кэш `use cache` живёт в памяти процесса и не общий между экземплярами; `source_hash` позволяет обновить перевод, когда AniList меняет английский текст. Чтение открыто всем (публичный каталог), запись — только сервер (service role); Data API открыт вручную и только на чтение. Без ключа service role приложение работает с хранилищем в памяти процесса.
 - ADR-014 Машинный перевод — за интерфейсом `Translator`; провайдера выбирает владелец проекта (цена, доступность и оплата из Беларуси, качество EN→RU). Выбран DeepL API Free (2026-11-01); Yandex — запасной вариант, добавляется записью в реестре провайдеров.
-- ADR-015 Фоновое заполнение переводов — Vercel Cron (`vercel.json`, раз в сутки) → Route Handler `/api/cron/translate`, а не Supabase `pg_cron` + Edge Function. Причины: переиспользуется весь серверный код на TypeScript (клиенты AniList, Shikimori, DeepL, хранилище) — Edge Function на Deno потребовала бы дубля; секреты (ключ DeepL, service role) уже в Vercel; суточного запуска на Hobby хватает (≈ 15 000 символов в день при месячном пределе 450 000). Защита — `CRON_SECRET` (`Authorization: Bearer`). Работа идемпотентна (хеш описания), поэтому пропущенный или двойной запуск безопасен. Отказ от перевода «на лету» при открытии страницы: страница не ждёт внешний API и не тратит квоту на случайные тайтлы.
+- ADR-015 Фоновое заполнение переводов — по расписанию раз в сутки, а не «на лету» при открытии страницы и не Supabase `pg_cron` + Edge Function. Причины: переиспользуется весь серверный код на TypeScript (клиенты AniList, Shikimori, DeepL, хранилище) — Edge Function на Deno потребовала бы дубля; суточного запуска хватает (≈ 15 000 символов в день при месячном пределе 450 000). Работа идемпотентна (хеш описания), поэтому пропущенный или двойной запуск безопасен. Страница не ждёт внешний API и не тратит квоту на случайные тайтлы. **Механизм запуска пересмотрен ADR-017** (2026-11-01): было — Vercel Cron (`vercel.json`) → `/api/cron/translate`; стало — GitHub Actions `translate-cron.yml` → `npm run translate` (`scripts/translate-backfill.ts`, тот же `runTranslationBackfill`, запись прямо в Supabase). `GET /api/cron/translate` под `CRON_SECRET` (`Authorization: Bearer`) оставлен для ручного запуска.
 - ADR-016 Бюджет символов — по `GET /v2/usage` DeepL, без своего счётчика в базе: DeepL считает весь расход ключа, а свой предел `TRANSLATE_MONTHLY_CHAR_LIMIT` (450 000) оставляет запас до лимита провайдера. Провайдер машинного перевода сохраняется в `anime_localizations.translator` (миграция `20261101120000`), чтобы пометка «(DeepL)» оставалась честной после смены провайдера.
+- ADR-017 Отказ от Vercel: локальная разработка, GitHub Actions, хостинг на финале (2026-11-01). **Контекст:** зарегистрироваться в Vercel из Беларуси нельзя; от Vercel зависели только расписание перевода (Vercel Cron) и планы превью-деплоев. **Решение:** до этапа 8 «Публикация» хостинга нет — всё проверяется локально (`next dev`, `next build && next start`) и в GitHub Actions: `ci.yml` (lint, typecheck, unit, build; E2E на моках отдельной job) и `translate-cron.yml` (раз в сутки в 03:17 UTC и `workflow_dispatch`, `concurrency`, `timeout-minutes: 15`; секреты — GitHub Secrets `NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `TRANSLATOR_PROVIDER`, `TRANSLATOR_API_KEY`). Скрипт `npm run translate` (`tsx`) вызывает тот же `runTranslationBackfill` — логика не дублируется. `vercel.json` удалён; базовый URL — `NEXT_PUBLIC_SITE_URL` (локально `http://localhost:3000`). Хостинг выбирается на этапе 8: Netlify (если пустит регистрация) или Docker (Timeweb Cloud / VPS); `Dockerfile`/`netlify.toml` до тех пор не создаются. **Альтернативы:** Netlify сейчас — отложено, превью-деплои не нужны до появления пользователей; Supabase `pg_cron` + Edge Function — дубль кода на Deno (см. ADR-015); cron на своём ПК — зависит от включённого компьютера. **Последствия:** нет превью-ссылок на PR — проверка PR = CI + локальная production-сборка; расписание GitHub может сдвигаться на десятки минут; репозиторий приватный — минуты Actions из лимита GitHub Free (≈ 2 мин на прогон перевода); Supabase Auth на этапе 3 настраивается на `http://localhost:3000`, продакшен-домен — на этапе 8.
 
 Расширенная версия и история решений — в Obsidian: `Anime Town/02 - Архитектура/`.
