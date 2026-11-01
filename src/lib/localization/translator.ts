@@ -1,47 +1,63 @@
+import { createDeepLTranslator } from "./translators/deepl";
+
 /**
  * Машинный перевод EN → RU для тайтлов без описания на Shikimori.
  * Провайдер выбирается переменной TRANSLATOR_PROVIDER; ключ — только в переменных окружения сервера.
- * Пока провайдер не выбран, getTranslator() возвращает null и сайт честно показывает английский оригинал.
+ * Новый провайдер (например, yandex) — ещё одна запись в PROVIDERS; вызывающий код не меняется.
  */
 export interface Translator {
+  /** Идентификатор для базы (anime_localizations.translator): deepl, yandex… */
   readonly name: string;
-  /** Переводит текст с английского на русский. Бросает ошибку при сбое — перевод повторится позже. */
-  translate(text: string): Promise<string>;
+  /** Название для интерфейса: «Машинный перевод (DeepL)». */
+  readonly label: string;
+  /** Сколько текстов и байт тела можно отправить одним запросом. */
+  readonly maxBatchTexts: number;
+  readonly maxBatchBytes: number;
+  /**
+   * Переводит пачку текстов с английского на русский; порядок ответа = порядок запроса.
+   * Ошибки — TranslatorError (повторы временных сбоев провайдер делает сам).
+   */
+  translate(texts: string[]): Promise<{ texts: string[]; billedCharacters: number }>;
+  /** Израсходовано и доступно символов в текущем периоде; null — провайдер не сообщает. */
+  getUsage(): Promise<TranslatorUsage | null>;
 }
 
-const TRANSLATE_TIMEOUT_MS = 15_000;
+export type TranslatorUsage = { used: number; limit: number };
 
-/**
- * Тестовый провайдер для E2E: HTTP-мок из tests/mock-shikimori (POST { text } → { text }).
- * Включается только в E2E-сборке, чтобы его нельзя было случайно включить в продакшене.
- */
-function createMockTranslator(endpoint: string): Translator {
-  return {
-    name: "mock",
-    async translate(text) {
-      const response = await fetch(endpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text, from: "en", to: "ru" }),
-        signal: AbortSignal.timeout(TRANSLATE_TIMEOUT_MS),
-        cache: "no-store",
-      });
-      if (!response.ok) throw new Error(`Переводчик ответил ${response.status}`);
-      const body = (await response.json()) as { text?: string };
-      if (!body.text?.trim()) throw new Error("Переводчик вернул пустой текст");
-      return body.text.trim();
-    },
-  };
+/** Подписи провайдеров для интерфейса — в том числе для переводов, сделанных прежним провайдером. */
+export const TRANSLATOR_LABELS: Record<string, string> = {
+  deepl: "DeepL",
+  yandex: "Яндекс Переводчик",
+};
+
+export function translatorLabel(name: string | null | undefined): string | null {
+  if (!name) return null;
+  return TRANSLATOR_LABELS[name] ?? name;
 }
 
-export function getTranslator(env: NodeJS.ProcessEnv = process.env): Translator | null {
-  const provider = env.TRANSLATOR_PROVIDER?.trim();
+type Env = Record<string, string | undefined>;
+
+const PROVIDERS: Record<string, (env: Env) => Translator | null> = {
+  deepl(env) {
+    // DEEPL_API_KEY — основное имя; TRANSLATOR_API_KEY — общее имя из .env.example.
+    const apiKey = (env.DEEPL_API_KEY || env.TRANSLATOR_API_KEY)?.trim();
+    if (!apiKey) return null;
+    // Подмена адреса — только для E2E (мок DeepL), чтобы ключ нельзя было случайно отправить на чужой сервер.
+    const endpoint = env.ANIME_TOWN_E2E === "1" ? env.DEEPL_API_URL : undefined;
+    return createDeepLTranslator({ apiKey, endpoint });
+  },
+};
+
+export function getTranslator(env: Env = process.env): Translator | null {
+  const provider = env.TRANSLATOR_PROVIDER?.trim().toLowerCase();
   if (!provider) return null;
 
-  if (provider === "mock" && env.ANIME_TOWN_E2E === "1" && env.TRANSLATOR_MOCK_URL) {
-    return createMockTranslator(env.TRANSLATOR_MOCK_URL);
+  const create = PROVIDERS[provider];
+  if (!create) {
+    console.warn(`[translator] неизвестный провайдер «${provider}» — машинный перевод выключен`);
+    return null;
   }
-
-  console.warn(`[translator] неизвестный или недоступный провайдер «${provider}» — машинный перевод выключен`);
-  return null;
+  const translator = create(env);
+  if (!translator) console.warn(`[translator] у провайдера «${provider}» не задан ключ — машинный перевод выключен`);
+  return translator;
 }

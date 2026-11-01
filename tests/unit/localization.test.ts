@@ -1,11 +1,12 @@
 // @vitest-environment node
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { paginateMalIdResults, toMalIdVariables } from "@/lib/anime/catalog-params";
 import { EMPTY_FILTERS } from "@/lib/anime/catalog-params";
 import { descriptionHash } from "@/lib/localization/hash";
 import {
   mergeShikimori,
+  needsMachineTranslation,
   needsShikimoriRefresh,
   resolveDescription,
   resolveTitles,
@@ -25,6 +26,7 @@ const record = (overrides: Partial<LocalizationRecord> = {}): LocalizationRecord
   descriptionRu: null,
   source: null,
   sourceHash: null,
+  translator: null,
   shikimoriUrl: "https://shikimori.io/animes/1001",
   updatedAt: "2026-11-01T00:00:00.000Z",
   ...overrides,
@@ -64,10 +66,26 @@ describe("resolveDescription: Shikimori → машинный перевод → 
   });
 
   it("машинный перевод — только если сделан с текущего английского текста", () => {
-    const machine = record({ descriptionRu: "Перевод.", source: "machine", sourceHash: HASH });
-    expect(resolveDescription(english, machine, HASH)).toEqual({ language: "ru", source: "machine", text: "Перевод." });
+    const machine = record({ descriptionRu: "Перевод.", source: "machine", sourceHash: HASH, translator: "deepl" });
+    expect(resolveDescription(english, machine, HASH)).toEqual({
+      language: "ru",
+      source: "machine",
+      text: "Перевод.",
+      translator: "DeepL",
+    });
     // AniList изменил описание — перевод устарел, показываем оригинал (и переводим заново).
     expect(resolveDescription(english, machine, descriptionHash("New story."))).toEqual(english);
+    // Неизвестный (будущий) провайдер — подпись по идентификатору.
+    expect(resolveDescription(english, { ...machine, translator: "acme" }, HASH)).toMatchObject({ translator: "acme" });
+  });
+
+  it("needsMachineTranslation: не переводить при описании Shikimori и при совпавшем хеше", () => {
+    expect(needsMachineTranslation(undefined, HASH)).toBe(true);
+    expect(needsMachineTranslation(record(), HASH)).toBe(true);
+    expect(needsMachineTranslation(record({ descriptionRu: "Сюжет.", source: "shikimori" }), HASH)).toBe(false);
+    const machine = record({ descriptionRu: "Перевод.", source: "machine", sourceHash: HASH, translator: "deepl" });
+    expect(needsMachineTranslation(machine, HASH)).toBe(false);
+    expect(needsMachineTranslation(machine, descriptionHash("New story."))).toBe(true);
   });
 
   it("без русского описания — английский оригинал или null", () => {
@@ -157,12 +175,13 @@ describe("сверка с Shikimori", () => {
   });
 
   it("машинный перевод сохраняет название и ссылку Shikimori", () => {
-    expect(withMachineTranslation(1, 1001, record(), "Перевод.", HASH)).toMatchObject({
+    expect(withMachineTranslation(1, 1001, record(), "Перевод.", HASH, "deepl")).toMatchObject({
       titleRu: "Звёздный город",
       shikimoriUrl: "https://shikimori.io/animes/1001",
       descriptionRu: "Перевод.",
       source: "machine",
       sourceHash: HASH,
+      translator: "deepl",
     });
   });
 });
@@ -202,9 +221,13 @@ describe("getTranslator", () => {
     expect(getTranslator({ NODE_ENV: "test" })).toBeNull();
   });
 
-  it("мок-провайдер включается только в E2E-сборке", () => {
-    const env = { NODE_ENV: "test" as const, TRANSLATOR_PROVIDER: "mock", TRANSLATOR_MOCK_URL: "http://127.0.0.1:4020/translate" };
-    expect(getTranslator(env)).toBeNull();
-    expect(getTranslator({ ...env, ANIME_TOWN_E2E: "1" })?.name).toBe("mock");
+  it("deepl: ключ из DEEPL_API_KEY или TRANSLATOR_API_KEY, без ключа — выключен", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    expect(getTranslator({ TRANSLATOR_PROVIDER: "deepl", DEEPL_API_KEY: "test-key:fx" })).toMatchObject({ name: "deepl", label: "DeepL" });
+    expect(getTranslator({ TRANSLATOR_PROVIDER: "DeepL", TRANSLATOR_API_KEY: "test-key:fx" })?.name).toBe("deepl");
+    expect(getTranslator({ TRANSLATOR_PROVIDER: "deepl" })).toBeNull();
+    expect(getTranslator({ TRANSLATOR_PROVIDER: "unknown", TRANSLATOR_API_KEY: "x" })).toBeNull();
+    expect(warn).toHaveBeenCalledTimes(2);
+    warn.mockRestore();
   });
 });

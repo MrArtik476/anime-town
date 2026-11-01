@@ -81,12 +81,13 @@ npm i -D @playwright/test
 | Уровень | Команда | Что проверяет |
 |---|---|---|
 | Unit (Vitest 4 + jsdom + Testing Library) | `npm test` | `tests/unit/`: клиент AniList (повторы, таймаут, бюджет ожидания, 429, 404, сбои), лимитер и `proxy.ts` (`tests/unit/server/`, окружение node), `/api/catalog` (INVALID_PARAMS), маппинг и форматирование (HTML-сущности, хвосты источников), параметры каталога и сортировка, debounce, компоненты (карточка, постер, поиск, фильтры, мобильная шторка, чипсы, «Загрузить ещё», ошибки); русский контент — клиент Shikimori (пачки, User-Agent, ошибки), ограничитель частоты, BB-коды, кириллица, хеш, выбор источника названия и описания, сверка и отказоустойчивость `loadLocalizations`, русский поиск (MAL id → AniList, порядок и страницы), переводчик |
-| E2E (Playwright, Chromium) | `npm run test:e2e` | `tests/e2e/`: главная, каталог (поиск, фильтры, сортировка, «В тренде», URL, пагинация, ошибки, лимит 429), страница аниме (связи, заглушки, 404, сбой), API, русский контент (описание Shikimori с атрибуцией, метка машинного перевода, поиск «Атака титанов»), адаптивность на 1440×900, 1280×800, 768×1024, 390×844, 360×800 |
+| E2E (Playwright, Chromium) | `npm run test:e2e` | `tests/e2e/`: главная, каталог (поиск, фильтры, сортировка, «В тренде», URL, пагинация, ошибки, лимит 429), страница аниме (связи, заглушки, 404, сбой), API, русский контент (описание Shikimori с атрибуцией, поиск «Атака титанов»), машинный перевод (защита `/api/cron/translate`, перевод через мок DeepL, пометка «Машинный перевод (DeepL)», повторный запуск ничего не тратит), адаптивность на 1440×900, 1280×800, 768×1024, 390×844, 360×800 |
 
-**Как устроены E2E.** `playwright.config.ts` поднимает три сервера:
+**Как устроены E2E.** `playwright.config.ts` поднимает четыре сервера:
 1. `tests/mock-anilist/server.mjs` — мок AniList GraphQL на `127.0.0.1:4010` с фикстурами (`fixtures.mjs`). Управляемые сценарии: поиск `__error__` → 500, `__ratelimit__` → 429 c `Retry-After: 60`, тайтл `500500` → 500, неизвестный ID → 404. Мок отклоняет запросы с `null`-переменными — так проверяется контракт клиента.
-2. `tests/mock-shikimori/server.mjs` — мок Shikimori GraphQL на `127.0.0.1:4020/api/graphql` (без User-Agent `AnimeTown/…` отвечает 403) и мок переводчика `POST /translate`. Фикстуры: MAL 1001 — название и описание с BB-кодами, 1002 — только название (сценарий машинного перевода), 16498 — «Атака титанов» (в моке AniList у тайтла 6 только английское название), 99999 — есть на Shikimori, нет в AniList. Переводы в E2E хранятся в памяти процесса.
-3. Production-сборку приложения на `127.0.0.1:3100` с `ANILIST_GRAPHQL_URL`, `SHIKIMORI_GRAPHQL_URL` и `TRANSLATOR_PROVIDER=mock` на моки и `ANIME_TOWN_E2E=1` (отдельная папка `.next-e2e`). Обложки AniList и в production грузятся браузером напрямую, поэтому `tests/e2e/fixtures.ts` подменяет их без сети.
+2. `tests/mock-shikimori/server.mjs` — мок Shikimori GraphQL на `127.0.0.1:4020/api/graphql` (без User-Agent `AnimeTown/…` отвечает 403). Фикстуры: MAL 1001 — название и описание с BB-кодами, 1002 — только название (сценарий машинного перевода), 16498 — «Атака титанов» (в моке AniList у тайтла 6 только английское название), 99999 — есть на Shikimori, нет в AniList. Переводы в E2E хранятся в памяти процесса.
+3. `tests/mock-deepl/server.mjs` — мок DeepL на `127.0.0.1:4030`: `POST /v2/translate`, `GET /v2/usage`, без заголовка `DeepL-Auth-Key <фиктивный ключ>` — 403, текст `__quota__` — 456.
+4. Production-сборку приложения на `127.0.0.1:3100` с `ANILIST_GRAPHQL_URL`, `SHIKIMORI_GRAPHQL_URL`, `TRANSLATOR_PROVIDER=deepl` + `DEEPL_API_URL` на моки, фиктивными `DEEPL_API_KEY` и `CRON_SECRET` (`tests/e2e/constants.ts`) и `ANIME_TOWN_E2E=1` (отдельная папка `.next-e2e`). Обложки AniList и в production грузятся браузером напрямую, поэтому `tests/e2e/fixtures.ts` подменяет их без сети.
 
 **Лимит по IP в E2E.** `proxy.ts` считает запросы каталога по `x-forwarded-for`; фикстура `extraHTTPHeaders` в `tests/e2e/fixtures.ts` выдаёт каждому тесту свой адрес, поэтому параллельные тесты не упираются в общий лимит, а тесты лимита исчерпывают его намеренно. В фикстурах мока есть тайтл «Meteor Sprint» — первый «В тренде», но последний по популярности.
 
@@ -97,12 +98,25 @@ npm i -D @playwright/test
 - `ANILIST_GRAPHQL_URL` — адрес AniList GraphQL; по умолчанию `https://graphql.anilist.co`, ключ не нужен. Переопределяется только для тестов.
 - `SHIKIMORI_GRAPHQL_URL` — адрес Shikimori GraphQL; по умолчанию `https://shikimori.io/api/graphql`, ключ не нужен. Переопределяется только для тестов.
 - `SUPABASE_SERVICE_ROLE_KEY` (+ `NEXT_PUBLIC_SUPABASE_URL`) — только сервер: запись переводов в `anime_localizations`. Без него переводы хранятся в памяти процесса и теряются при перезапуске. E2E-сборка (`ANIME_TOWN_E2E=1`) всегда использует память и в настоящую базу не пишет.
-- `TRANSLATOR_PROVIDER`, `TRANSLATOR_API_KEY` — машинный перевод EN→RU. Провайдер ещё не выбран; пока переменные пусты, перевод выключен. Значение `mock` работает только в E2E-сборке.
+- `TRANSLATOR_PROVIDER`, `DEEPL_API_KEY` (или `TRANSLATOR_API_KEY`), `TRANSLATE_MONTHLY_CHAR_LIMIT`, `TRANSLATE_RUN_CHAR_LIMIT`, `CRON_SECRET` — машинный перевод, см. «Машинный перевод: настройка DeepL». `DEEPL_API_URL` учитывается только в E2E-сборке.
 - Типы базы: `npm run db:types` (нужен однократный `npx supabase login`) или Supabase MCP `generate_typescript_types` → `src/types/database.ts`. Миграции — `supabase/migrations/`.
 - Supabase-клиенты (`src/lib/supabase/`) создаются только при наличии реальных `NEXT_PUBLIC_SUPABASE_URL` и `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`; значения-заглушки считаются отсутствующими. Каталог Supabase не использует — без `.env.local` всё работает.
 
+## Машинный перевод: настройка DeepL
+1. Ключ DeepL API (Free оканчивается на `:fx` → `api-free.deepl.com`; без `:fx` → `api.deepl.com`): developers.deepl.com → API Keys.
+2. В `.env.local` и в Vercel (Settings → Environment Variables, Production): `TRANSLATOR_PROVIDER=deepl`, `DEEPL_API_KEY=<ключ>`, `SUPABASE_SERVICE_ROLE_KEY=<secret key>`, `CRON_SECRET=<случайная строка ≥ 16 символов>`. Без service role ключа заполнение не тратит символы (`stopped: no_store`) — перевод потерялся бы при перезапуске.
+3. Расписание — `vercel.json` (`0 3 * * *`, раз в сутки; на Hobby чаще нельзя, время ± 59 мин). Vercel Cron работает только на production-деплое.
+4. Ручной запуск (локально после `npm run build && npm run start`):
+   ```bash
+   curl -H "Authorization: Bearer $CRON_SECRET" "http://localhost:3000/api/cron/translate?limit=5"
+   ```
+   Ответ — отчёт без текстов: `candidates`, `pending`, `translated`, `characters`, `batches`, `stopped`, `usage { used, limit, ownLimit }`.
+5. Остаток квоты — `usage` в отчёте или `GET https://api-free.deepl.com/v2/usage` с заголовком `Authorization: DeepL-Auth-Key <ключ>`.
+
+Значения `stopped`: `no_translator` (нет провайдера/ключа), `no_store` (нет service role), `usage_unavailable`, `budget_exhausted` (свой предел или лимит DeepL), `AUTH` (403 — неверный ключ), `QUOTA_EXCEEDED` (456), `RATE_LIMITED`/`UNAVAILABLE` (повторы исчерпаны, следующий запуск продолжит), `store_error`.
+
 ## Каталог: известные ограничения
-- **Русский контент** — названия и описания берутся с Shikimori. Тайтлы без MAL id или без описания на Shikimori показываются с английским описанием и пометкой, пока не выбран машинный переводчик. Русский поиск ограничен 50 лучшими совпадениями Shikimori. Названия в «Связанных произведениях» — пока по синонимам AniList.
+- **Русский контент** — названия и описания берутся с Shikimori. Тайтлы без описания на Shikimori получают машинный перевод DeepL при ежедневном фоновом заполнении — только трендовые и популярные (до 100 за раз); остальные показываются с английским описанием и пометкой. Русский поиск ограничен 50 лучшими совпадениями Shikimori. Названия в «Связанных произведениях» — пока по синонимам AniList.
 - **Лимит AniList** — 30 запросов в минуту на сервер (на 31.10.2026, обычно 90). Кэш снимает повторы, лимит по IP (20/мин, `proxy.ts`) — всплески одного клиента. Общий поток от многих IP он не ограничивает: при холодном кэше и всплеске трафика пользователь может увидеть «Слишком много запросов» с кнопкой «Повторить».
 - **Лимитер в памяти процесса.** На Vercel у каждого экземпляра свой счётчик; общий — реализация `RateLimiter` на Upstash или Supabase (`src/lib/rate-limit/catalog.ts`).
 - **Кэш `use cache` в памяти процесса.** На Vercel (serverless) он не общий между экземплярами; для продакшена — `use cache: remote` или собственная таблица `anime` (этап 2 после Supabase).

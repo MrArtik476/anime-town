@@ -20,32 +20,6 @@ test.describe("Русский контент", () => {
     expect(consoleErrors).toEqual([]);
   });
 
-  test("нет описания на Shikimori: сначала оригинал с пометкой, затем машинный перевод", async ({ page }) => {
-    await page.goto("/anime/2");
-
-    // Название — с Shikimori, английское становится альтернативным.
-    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Звёздный город 2");
-    await expect(page.getByText(/Star Town Season 2/).first()).toBeVisible();
-
-    const description = page.getByRole("region", { name: "Описание" });
-    const machineLabel = description.getByText("Машинный перевод", { exact: true });
-    // Переводы живут в памяти сервера: при повторном прогоне (--repeat-each) тайтл уже переведён.
-    if (!(await machineLabel.isVisible())) {
-      await expect(description).toContainText("Русского описания пока нет");
-      await expect(description).toContainText("Test anime 2 plot summary.");
-      await expect(description.getByText("Описание: AniList.")).toBeVisible();
-    }
-
-    // Перевод выполняется в фоне после ответа (after) и сохраняется; следующий показ — уже на русском.
-    await expect(async () => {
-      await page.reload();
-      await expect(machineLabel).toBeVisible({ timeout: 1_000 });
-    }).toPass({ timeout: 15_000 });
-    await expect(description).toContainText("Переведённое описание: Test anime 2 plot summary.");
-    await expect(description).toContainText("Переведено автоматически с английского описания AniList.");
-    await expect(description).not.toContainText("Русского описания пока нет");
-  });
-
   test("поиск «Атака титанов» находит тайтл, которого AniList по-русски не знает", async ({ page }) => {
     await page.goto("/catalog");
     await page.getByLabel("Поиск по названию").fill("Атака титанов");

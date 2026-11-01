@@ -27,7 +27,7 @@ export type AnimeCard = {
  */
 export type AnimeDescription =
   | { language: "ru"; source: "shikimori"; text: string; sourceUrl: string | null }
-  | { language: "ru"; source: "machine"; text: string }
+  | { language: "ru"; source: "machine"; text: string; translator: string | null }
   | { language: "en"; source: "anilist"; text: string };
 
 export type FeaturedAnime = AnimeCard & {

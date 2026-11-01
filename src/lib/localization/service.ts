@@ -1,12 +1,9 @@
-import { after } from "next/server";
-
 import { fetchShikimoriByMalIds } from "@/lib/shikimori/api";
 import type { AnimeCard, AnimeDescription } from "@/types/anime";
 
 import { descriptionHash } from "./hash";
-import { mergeShikimori, needsShikimoriRefresh, resolveDescription, resolveTitles, withMachineTranslation } from "./resolve";
+import { mergeShikimori, needsShikimoriRefresh, resolveDescription, resolveTitles } from "./resolve";
 import { getLocalizationStore } from "./store";
-import { getTranslator } from "./translator";
 import type { LocalizationRecord, LocalizationStore } from "./types";
 
 type Entry = { id: number; malId: number | null };
@@ -73,43 +70,4 @@ export function localizeDescription(
 ): AnimeDescription | null {
   const hash = original?.language === "en" ? descriptionHash(original.text) : null;
   return resolveDescription(original, record, hash);
-}
-
-const pending = globalThis as typeof globalThis & {
-  __animeTownTranslations?: { inFlight: Set<number>; failedAt: Map<number, number> };
-};
-/** После сбоя перевода не повторять раньше, чем через 10 минут. */
-const RETRY_AFTER_FAILURE_MS = 10 * 60 * 1000;
-
-/**
- * Машинный перевод английского описания — в фоне после ответа (after), один раз на тайтл:
- * результат сохраняется вместе с хешем исходного текста. Без провайдера ничего не делает.
- */
-export function scheduleMachineTranslation(anime: Entry, original: AnimeDescription | null): boolean {
-  if (original?.language !== "en") return false;
-  const translator = getTranslator();
-  if (!translator) return false;
-
-  pending.__animeTownTranslations ??= { inFlight: new Set(), failedAt: new Map() };
-  const { inFlight, failedAt } = pending.__animeTownTranslations;
-  const failed = failedAt.get(anime.id);
-  if (inFlight.has(anime.id) || (failed && Date.now() - failed < RETRY_AFTER_FAILURE_MS)) return false;
-  inFlight.add(anime.id);
-
-  const text = original.text;
-  after(async () => {
-    const store = getLocalizationStore();
-    try {
-      const translation = await translator.translate(text);
-      const previous = (await store.getMany([anime.id])).get(anime.id);
-      await store.upsertMany([withMachineTranslation(anime.id, anime.malId, previous, translation, descriptionHash(text))]);
-      failedAt.delete(anime.id);
-    } catch (error) {
-      failedAt.set(anime.id, Date.now());
-      console.error(`[translator] не удалось перевести описание ${anime.id}`, error);
-    } finally {
-      inFlight.delete(anime.id);
-    }
-  });
-  return true;
 }

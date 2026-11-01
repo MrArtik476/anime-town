@@ -2,6 +2,11 @@ import { Languages } from "lucide-react";
 
 import type { AnimeDescription as Description } from "@/types/anime";
 
+/** «Машинный перевод (DeepL)»; без известного провайдера — просто «Машинный перевод». */
+export function machineTranslationLabel(translator: string | null): string {
+  return translator ? `Машинный перевод (${translator})` : "Машинный перевод";
+}
+
 /** Описание тайтла с честной пометкой источника: Shikimori, машинный перевод или английский оригинал. */
 export function AnimeDescription({ description }: { description: Description | null }) {
   if (!description) {
@@ -13,7 +18,7 @@ export function AnimeDescription({ description }: { description: Description | n
       {description.source === "machine" && (
         <p className="mt-4 inline-flex items-center gap-1.5 rounded-md border border-border/70 bg-muted px-2.5 py-1 text-xs font-medium text-foreground/90">
           <Languages aria-hidden className="size-3.5" />
-          Машинный перевод
+          {machineTranslationLabel(description.translator)}
         </p>
       )}
       {description.language === "en" && (
