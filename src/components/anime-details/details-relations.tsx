@@ -1,5 +1,4 @@
-import Link from "next/link";
-
+import { IntentLink } from "@/components/anime/intent-link";
 import { PosterImage } from "@/components/anime/poster-image";
 import { formatFormat, formatRelation } from "@/lib/anime/format";
 import type { AnimeRelation } from "@/types/anime";
@@ -34,12 +33,12 @@ export function DetailsRelations({ relations }: { relations: AnimeRelation[] }) 
         {relations.map((relation) => (
           <li key={`${relation.relationType}-${relation.id}`}>
             {relation.isAnime ? (
-              <Link
+              <IntentLink
                 href={`/anime/${relation.id}`}
                 className="flex gap-3 rounded-lg border border-border/70 bg-card p-2 outline-none transition-colors hover:border-primary/60 focus-visible:ring-3 focus-visible:ring-ring/60"
               >
                 <RelationBody relation={relation} />
-              </Link>
+              </IntentLink>
             ) : (
               // Манга и ранобэ — справочно, своих страниц для них нет.
               <div className="flex gap-3 rounded-lg border border-border/50 bg-card/60 p-2">

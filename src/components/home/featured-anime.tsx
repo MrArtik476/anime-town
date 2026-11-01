@@ -2,6 +2,7 @@ import Image from "next/image";
 import Link from "next/link";
 
 import { cardMeta } from "@/components/anime/anime-meta";
+import { IntentLink } from "@/components/anime/intent-link";
 import { PosterImage } from "@/components/anime/poster-image";
 import { ScoreBadge } from "@/components/anime/score-badge";
 import { FadeIn } from "@/components/motion/fade-in";
@@ -95,9 +96,9 @@ export function FeaturedAnime({ anime }: { anime: FeaturedAnimeData }) {
           )}
 
           <div className="mt-7 flex flex-wrap gap-3">
-            <Link href={`/anime/${anime.id}`} className={cn(buttonVariants({ size: "lg" }), "h-11 px-5")}>
+            <IntentLink href={`/anime/${anime.id}`} preview={anime} className={cn(buttonVariants({ size: "lg" }), "h-11 px-5")}>
               Подробнее
-            </Link>
+            </IntentLink>
             <Link href="/catalog" className={cn(buttonVariants({ variant: "outline", size: "lg" }), "h-11 px-5")}>
               Весь каталог
             </Link>

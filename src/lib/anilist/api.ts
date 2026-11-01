@@ -1,6 +1,4 @@
 import { cacheLife, cacheTag } from "next/cache";
-import { connection } from "next/server";
-import { cache } from "react";
 
 import {
   type CatalogFilters,
@@ -9,7 +7,7 @@ import {
   toMalIdVariables,
 } from "@/lib/anime/catalog-params";
 import { mapFeatured, mapMediaToCard, mapMediaToDetails } from "@/lib/anime/mappers";
-import { loadLocalizations, localizeCards, localizeDescription } from "@/lib/localization/service";
+import { loadLocalizations, localizeCards, localizeDescription, readLocalizations } from "@/lib/localization/service";
 import { hasCyrillic } from "@/lib/localization/text";
 import { resolveTitles } from "@/lib/localization/resolve";
 import { searchShikimoriMalIds } from "@/lib/shikimori/api";
@@ -172,19 +170,35 @@ export async function getAnimeById(id: number): Promise<AniListResult<AnimeDetai
 }
 
 /**
- * Тайтл с русским названием и описанием. Данные AniList — из кэша, перевод — из хранилища при каждом
- * показе (дёшево), поэтому готовый машинный перевод появляется сразу, без ожидания кэша.
- * React cache: generateMetadata и страница в одном запросе делят результат.
+ * Срок жизни страницы тайтла с переводом. stale ≥ 5 минут — клиентский роутер переиспользует её при повторных
+ * переходах без запроса к серверу. revalidate 10 минут — перевод, записанный фоновым заполнением
+ * (GitHub Actions, другой процесс), появляется на странице не позже чем через 10 минут; ручной запуск
+ * /api/cron/translate сбрасывает тег `localization` сразу.
  */
-export const getLocalizedAnimeById = cache(async (id: number): Promise<AniListResult<AnimeDetails>> => {
-  const result = await getAnimeById(id);
-  if (!result.ok) return result;
+const LOCALIZED_ANIME_LIFE = { stale: 300, revalidate: 600, expire: 86_400 };
+
+/**
+ * Тайтл с русским названием и описанием. Кэшируется целиком (`use cache`): повторный показ и prefetch
+ * по наведению на карточку отдаются без запросов к AniList, Supabase и Shikimori.
+ * Данные AniList и строки переводов читаются параллельно: для чтения перевода нужен только id AniList.
+ */
+export async function getLocalizedAnimeById(id: number): Promise<AniListResult<AnimeDetails>> {
+  "use cache";
+  cacheTag("anilist", `anilist:anime:${id}`, "localization", `localization:${id}`);
+
+  const [result, stored] = await Promise.all([getAnimeById(id), readLocalizations([id])]);
+  if (!result.ok) {
+    if (result.error.code === "NOT_FOUND") cacheLife("minutes");
+    else cacheLife("seconds");
+    return result;
+  }
 
   const anime = result.data;
-  // Перевод читается при каждом запросе (Date.now() при сверке с Shikimori): явно помечаем данные
-  // как динамические, иначе Next.js пытается пререндерить их и сообщает о нестабильном Date.now().
-  await connection();
-  const { records } = await loadLocalizations([anime]);
+  const { records, complete } = await loadLocalizations([anime], undefined, stored);
+  // Сбой хранилища или Shikimori — кэшируем ненадолго, чтобы быстро подтянуть русские данные.
+  if (complete) cacheLife(LOCALIZED_ANIME_LIFE);
+  else cacheLife("minutes");
+
   const record = records.get(anime.id);
   const localized = resolveTitles(anime, record);
   // Русские синонимы Shikimori — первыми в «Других названиях». Прежнее основное название (например,
@@ -196,4 +210,4 @@ export const getLocalizedAnimeById = cache(async (id: number): Promise<AniListRe
     ok: true,
     data: { ...localized, synonyms, description: localizeDescription(anime.description, record) },
   };
-});
+}

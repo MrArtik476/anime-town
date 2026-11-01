@@ -1,9 +1,8 @@
-import Link from "next/link";
-
 import { cn } from "@/lib/utils";
 import type { AnimeCard as AnimeCardData } from "@/types/anime";
 
 import { cardMeta } from "./anime-meta";
+import { IntentLink } from "./intent-link";
 import { PosterImage } from "./poster-image";
 import { ScoreBadge } from "./score-badge";
 
@@ -20,8 +19,9 @@ export function AnimeCard({ anime, className, priority }: AnimeCardProps) {
 
   return (
     <article className={cn("group min-w-0", className)} data-testid="anime-card">
-      <Link
+      <IntentLink
         href={`/anime/${anime.id}`}
+        preview={anime}
         className="block rounded-lg outline-none focus-visible:ring-3 focus-visible:ring-ring/60"
       >
         <div className="relative aspect-[2/3] overflow-hidden rounded-lg border border-border/60 shadow-lg shadow-black/30">
@@ -45,7 +45,7 @@ export function AnimeCard({ anime, className, priority }: AnimeCardProps) {
         {meta.length > 0 && (
           <p className="mt-1 line-clamp-1 text-xs text-muted-foreground/90">{meta.join(" · ")}</p>
         )}
-      </Link>
+      </IntentLink>
     </article>
   );
 }

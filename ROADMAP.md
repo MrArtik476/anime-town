@@ -42,6 +42,8 @@
 - [x] Машинный перевод DeepL: провайдер за интерфейсом `Translator`, бюджет по `/v2/usage` (свой предел 450 000), пометка «Машинный перевод (DeepL)» (PR #7)
 - [x] Фоновый перевод без сервера (ADR-017): `npm run translate [-- --limit N]` и GitHub Actions `translate-cron.yml` раз в сутки; `/api/cron/translate` — ручной запуск под `CRON_SECRET`
 
+- [x] Скорость переходов (ADR-019): кэш страницы тайтла, prefetch по наведению, шапка тайтла из карточки, CSS вместо Motion (−40 КБ gzip), следующая страница каталога заранее (PR #12)
+
 **Хвосты каталога** (не блокируют следующие этапы):
 - [ ] Секреты GitHub Actions для ежедневного перевода: `NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `TRANSLATOR_PROVIDER`, `TRANSLATOR_API_KEY` — **нужен владелец**; затем первый прогон на 3–5 тайтлах
 - [ ] `SUPABASE_SERVICE_ROLE_KEY` в `.env.local` — без него локальный перевод не тратит символы (`no_store`) — **нужен владелец**
@@ -86,7 +88,7 @@
 - [ ] Конфигурация под выбранный хостинг: `netlify.toml` **или** `Dockerfile` (`output: "standalone"`) + `.dockerignore`
 - [ ] Переменные окружения на хостинге (по `.env.example`), `NEXT_PUBLIC_SITE_URL` = продакшен-домен
 - [ ] Домен, HTTPS; Supabase Auth: Site URL и Redirect URLs на продакшен-домен; свой SMTP для писем
-- [ ] Общий кэш ответов AniList (`use cache: remote` или таблица `anilist_cache`) и общий лимитер (Upstash/Supabase), если экземпляров больше одного
+- [ ] Общий кэш ответов AniList (`use cache: remote` или таблица `anilist_cache`) и общий лимитер (Upstash/Supabase), если экземпляров больше одного — отложено сюда по замеру (ADR-019): на одном сервере `use cache` в памяти уже отдаёт повторы за ~20 мс
 - [ ] IP клиента для лимита: проверить, какой заголовок выставляет выбранный хостинг/прокси (`x-forwarded-for`)
 - [ ] Ежедневный перевод: остаётся в GitHub Actions (работает без хостинга); `/api/cron/translate` на проде — только ручной запуск
 - [ ] Мониторинг ошибок, smoke-тест на проде (главная, каталог, тайтл, вход), откат

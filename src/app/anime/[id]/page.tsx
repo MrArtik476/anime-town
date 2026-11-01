@@ -4,7 +4,7 @@ import { Suspense } from "react";
 
 import { DataError } from "@/components/anime/data-error";
 import { AnimeDetailsView } from "@/components/anime-details/anime-details-view";
-import { DetailsSkeleton } from "@/components/anime-details/details-skeleton";
+import { DetailsLoading } from "@/components/anime-details/details-loading";
 import { SiteFooter } from "@/components/layout/site-footer";
 import { SiteHeader } from "@/components/layout/site-header";
 import { getLocalizedAnimeById } from "@/lib/anilist/api";
@@ -49,7 +49,7 @@ export default function AnimePage({ params }: AnimePageProps) {
     <>
       <SiteHeader />
       <main className="flex-1">
-        <Suspense fallback={<DetailsSkeleton />}>
+        <Suspense fallback={<DetailsLoading />}>
           <AnimeContent params={params} />
         </Suspense>
       </main>
