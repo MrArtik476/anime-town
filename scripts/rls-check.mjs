@@ -153,6 +153,32 @@ try {
   const noAttribution = await admin.from("episodes").insert({ anilist_id: PROBE_ANIME_ID, number: 5, license_status: "open_license", hls_url: "/media/x.m3u8" });
   check("открытая лицензия без атрибуции отклоняется", noAttribution.error?.code === "23514", noAttribution.error?.code ?? "ПРИНЯТА");
 
+  // ---- watch_progress: только свои строки, completed — ≥ 90 % ----
+  const visibleEpisode = eps.find((episode) => episode.number === 1);
+  const progressRow = (userId, position) => ({
+    user_id: userId,
+    episode_id: visibleEpisode.id,
+    anilist_id: PROBE_ANIME_ID,
+    episode_number: 1,
+    position_sec: position,
+    duration_sec: 100,
+    title: "Проба",
+  });
+  const ownProgress = await A.client.from("watch_progress").upsert(progressRow(A.id, 95)).select("completed").single();
+  check("A сохраняет свой прогресс; 95 % → completed", ownProgress.data?.completed === true, ownProgress.error?.code ?? "");
+  const bProgress = await B.client.from("watch_progress").upsert(progressRow(B.id, 30)).select("completed").single();
+  check("B сохраняет свой прогресс; 30 % → не completed", bProgress.data?.completed === false, bProgress.error?.code ?? "");
+  const seeOthers = await A.client.from("watch_progress").select("user_id");
+  check("A видит только свой прогресс", seeOthers.data?.length === 1 && seeOthers.data[0].user_id === A.id, rows(seeOthers));
+  const forgedProgress = await A.client.from("watch_progress").upsert(progressRow(B.id, 1));
+  check("A не пишет прогресс за B", !!forgedProgress.error, forgedProgress.error?.code ?? "ЗАПИСАЛ");
+  const anonProgress = await anon.from("watch_progress").select("user_id");
+  check("гость не читает прогресс", blocked(anonProgress), rows(anonProgress));
+  const overflow = await A.client.from("watch_progress").upsert(progressRow(A.id, 500));
+  check("позиция больше длительности отклоняется", overflow.error?.code === "23514", overflow.error?.code ?? "ПРИНЯТА");
+  const setCompleted = await A.client.from("watch_progress").update({ completed: false }).eq("user_id", A.id);
+  check("completed не задаётся вручную (вычисляется)", !!setCompleted.error, setCompleted.error?.code ?? "ЗАДАН");
+
   // ---- anime_localizations: пишет только service role ----
   const trUser = await A.client.from("anime_localizations").update({ title_ru: "x" }).eq("anilist_id", 1).select("anilist_id");
   check("пользователь не меняет переводы", blocked(trUser), rows(trUser));

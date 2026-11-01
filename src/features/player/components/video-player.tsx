@@ -66,7 +66,8 @@ export function VideoPlayer({ src, title, subtitles, next, startAt = 0, onProgre
     setLevel(-1);
 
     const onLoaded = () => {
-      if (startAt > 0 && startAt < video.duration - 5) video.currentTime = startAt;
+      // Продолжение — если позиция не у самого конца (иначе серия «досмотрена», ≥ 90 %).
+      if (startAt > 0 && startAt < video.duration * 0.9) video.currentTime = startAt;
       setStatus("ready");
     };
     video.addEventListener("loadedmetadata", onLoaded, { once: true });

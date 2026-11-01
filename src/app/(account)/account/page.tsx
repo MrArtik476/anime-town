@@ -14,6 +14,7 @@ import { ProfileForm } from "@/features/auth/components/profile-form";
 import { UserAvatar } from "@/features/auth/components/user-avatar";
 import { getCurrentProfile } from "@/features/auth/session";
 import { MyList } from "@/features/list/components/my-list";
+import { ContinueWatching } from "@/features/progress/components/continue-watching";
 
 export const metadata: Metadata = {
   title: "Профиль",
@@ -108,6 +109,12 @@ export default function AccountPage() {
             <AccountContent />
           </Suspense>
         </div>
+
+        <Suspense fallback={null}>
+          <div className="mt-12 empty:hidden">
+            <ContinueWatching />
+          </div>
+        </Suspense>
 
         <section aria-labelledby="my-list-heading" className="mt-12">
           <h2 id="my-list-heading" className="font-heading text-2xl font-bold tracking-tight">

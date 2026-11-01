@@ -347,7 +347,37 @@ function handleReadOnly(req, res, url, rows) {
   return sendRows(req, res, 200, result.slice(0, limit).map((row) => pick(row, url.searchParams.get("select"))));
 }
 
+/** watch_progress (миграция 20261101230000): свои строки, completed = position ≥ 90 % (вычисляется). */
+const progress = new Map();
+
+async function handleProgress(req, res, url) {
+  const user = userByToken(req);
+  if (!user) return send(res, 401, { code: "42501", message: "permission denied for table watch_progress" });
+  const params = [...url.searchParams.entries()];
+  if (req.method === "GET") {
+    let rows = [...progress.values()].filter((row) => row.user_id === user.id && matches(row, params));
+    if (url.searchParams.get("order")?.startsWith("updated_at.desc")) rows = rows.sort((a, b) => b.updated_at.localeCompare(a.updated_at));
+    const limit = Number(url.searchParams.get("limit") ?? Infinity);
+    return sendRows(req, res, 200, rows.slice(0, limit).map((row) => pick(row, url.searchParams.get("select"))));
+  }
+  if (req.method === "POST") {
+    const body = await readJson(req);
+    for (const item of Array.isArray(body) ? body : [body]) {
+      if (item.user_id !== user.id) return send(res, 403, { code: "42501", message: "new row violates row-level security policy" });
+      if (item.position_sec > item.duration_sec + 1) return send(res, 400, { code: "23514", message: "watch_progress_position_within_duration" });
+      progress.set(`${item.user_id}:${item.episode_id}`, {
+        ...item,
+        completed: item.position_sec >= item.duration_sec * 0.9,
+        updated_at: new Date().toISOString(),
+      });
+    }
+    return send(res, 201);
+  }
+  return send(res, 405, { message: "method not allowed in mock" });
+}
+
 async function handleRest(req, res, path, url) {
+  if (path === "/rest/v1/watch_progress") return handleProgress(req, res, url);
   if (path === "/rest/v1/episodes") return handleReadOnly(req, res, url, EPISODES.filter((e) => e.license_status !== "none"));
   if (path === "/rest/v1/subtitles") return handleReadOnly(req, res, url, SUBTITLES.filter((s) => visibleEpisodeIds.has(s.episode_id)));
   if (path === "/rest/v1/anime_list") return handleAnimeList(req, res, url);
