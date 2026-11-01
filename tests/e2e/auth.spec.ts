@@ -1,38 +1,7 @@
-import type { Page } from "@playwright/test";
-
+import { alert, header, input, login, newUser, register, status } from "./account-helpers";
 import { expect, test } from "./fixtures";
 
-// Аккаунты против мока Supabase (tests/mock-supabase): данные в памяти мока общие для всех тестов,
-// поэтому у каждого теста свои почта и ник.
-let counter = 0;
-function newUser(prefix = "u") {
-  const id = `${Date.now().toString(36)}${(counter++).toString(36)}${Math.random().toString(36).slice(2, 5)}`;
-  return { email: `${prefix}-${id}@example.com`, username: `${prefix}_${id}`.slice(0, 24), password: "Sakura-2026!" };
-}
-
-async function register(page: Page, user: { email: string; username: string; password: string }) {
-  await page.goto("/register");
-  await input(page, "Ник").fill(user.username);
-  await input(page, "Почта").fill(user.email);
-  await input(page, "Пароль").fill(user.password);
-  await page.getByRole("button", { name: "Создать аккаунт" }).click();
-}
-
-async function login(page: Page, email: string, password: string, path = "/login") {
-  await page.goto(path);
-  await input(page, "Почта").fill(email);
-  await input(page, "Пароль").fill(password);
-  await page.getByRole("button", { name: "Войти", exact: true }).click();
-}
-
-const header = (page: Page) => page.getByRole("banner");
-// Next.js 16 (Cache Components) держит прошлые страницы в DOM скрытыми (<Activity>) — getByLabel находит и их,
-// поэтому поля ищем только среди видимых.
-const input = (page: Page, label: string) => page.getByLabel(label, { exact: true }).filter({ visible: true });
-// В <main>: у Next.js есть свой скрытый role="alert" (объявление смены маршрута).
-const alert = (page: Page) => page.getByRole("main").getByRole("alert");
-const status = (page: Page) => page.getByRole("main").getByRole("status");
-
+// Аккаунты против мока Supabase (tests/mock-supabase).
 test.describe("Аккаунты", () => {
   // Сценарии с двумя-тремя регистрациями подряд: под полной параллельной нагрузкой 30 с бывает мало.
   test.describe.configure({ timeout: 60_000 });

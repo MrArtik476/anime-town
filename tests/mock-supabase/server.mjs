@@ -7,6 +7,7 @@
 // - signup с адресом, содержащим «confirm», — без сессии (включено подтверждение почты);
 // - профиль создаётся «триггером» при регистрации; занятый ник (без учёта регистра) → запасной user_xxxxxxxx;
 // - PATCH profiles — только своя строка (как RLS) и 409 / 23505 при занятом нике;
+// - anime_list — GET/POST (upsert)/DELETE только своих строк, гостю — 401, проверки статуса и оценки как в базе;
 // - ошибки — { code, error_code, msg } и заголовок X-Supabase-Api-Version.
 
 import { randomUUID } from "node:crypto";
@@ -118,7 +119,7 @@ async function readJson(req) {
 /** Фильтры PostgREST вида column=eq.value / ilike.value (ilike без шаблонов — экранированное равенство). */
 function matches(row, params) {
   for (const [column, filter] of params) {
-    if (["select", "limit", "order", "offset"].includes(column)) continue;
+    if (["select", "limit", "order", "offset", "on_conflict"].includes(column)) continue;
     const [op, ...rest] = filter.split(".");
     const value = rest.join(".");
     if (op === "eq" && String(row[column]) !== value) return false;
@@ -201,7 +202,71 @@ async function handleAuth(req, res, path, url) {
   return authError(res, 404, "not_found", `mock: ${req.method} ${path}`);
 }
 
+/** Ответ PostgREST: при .single() (Accept: vnd.pgrst.object+json) — объект или 406. */
+function sendRows(req, res, status, rows) {
+  if ((req.headers.accept ?? "").includes("vnd.pgrst.object")) {
+    if (rows.length !== 1) return send(res, 406, { code: "PGRST116", message: "JSON object requested, multiple (or no) rows returned" });
+    return send(res, status, rows[0]);
+  }
+  return send(res, status, rows);
+}
+
+/** Личный список (anime_list): RLS — только свои строки, проверки как в миграции 20261101170000. */
+const LIST_STATUSES = ["planned", "watching", "completed", "on_hold", "dropped"];
+/** "user_id:anilist_id" → строка */
+const animeList = new Map();
+
+function listRowError(row) {
+  if (row.status != null && !LIST_STATUSES.includes(row.status)) return "status";
+  if (row.score != null && !(Number.isInteger(row.score) && row.score >= 1 && row.score <= 10)) return "score";
+  if (row.status == null && row.score == null) return "anime_list_has_status_or_score";
+  if (!row.title) return "title";
+  return null;
+}
+
+async function handleAnimeList(req, res, url) {
+  const user = userByToken(req);
+  const params = [...url.searchParams.entries()];
+  // Гость: прав на таблицу нет (как revoke all from anon).
+  if (!user) return send(res, 401, { code: "42501", message: "permission denied for table anime_list" });
+  const own = () => [...animeList.values()].filter((row) => row.user_id === user.id && matches(row, params));
+
+  if (req.method === "GET") {
+    let rows = own();
+    const order = url.searchParams.get("order");
+    if (order?.startsWith("updated_at.desc")) rows = rows.sort((a, b) => b.updated_at.localeCompare(a.updated_at));
+    const limit = Number(url.searchParams.get("limit") ?? Infinity);
+    return sendRows(req, res, 200, rows.slice(0, limit).map((row) => pick(row, url.searchParams.get("select"))));
+  }
+
+  if (req.method === "POST") {
+    const body = await readJson(req);
+    const input = Array.isArray(body) ? body : [body];
+    const saved = [];
+    for (const item of input) {
+      // RLS with check: чужой user_id не вставить.
+      if (item.user_id !== user.id) return send(res, 403, { code: "42501", message: "new row violates row-level security policy" });
+      const key = `${item.user_id}:${item.anilist_id}`;
+      const now = new Date().toISOString();
+      const previous = animeList.get(key);
+      const row = { ...previous, ...item, created_at: previous?.created_at ?? now, updated_at: now };
+      const error = listRowError(row);
+      if (error) return send(res, 400, { code: "23514", message: `violates check constraint ${error}` });
+      animeList.set(key, row);
+      saved.push(pick(row, url.searchParams.get("select")));
+    }
+    return sendRows(req, res, 201, saved);
+  }
+
+  if (req.method === "DELETE") {
+    for (const row of own()) animeList.delete(`${row.user_id}:${row.anilist_id}`);
+    return send(res, 204);
+  }
+  return send(res, 405, { message: "method not allowed in mock" });
+}
+
 async function handleRest(req, res, path, url) {
+  if (path === "/rest/v1/anime_list") return handleAnimeList(req, res, url);
   if (path !== "/rest/v1/profiles") return send(res, 404, { code: "PGRST205", message: "not in mock" });
 
   if (req.method === "GET") {

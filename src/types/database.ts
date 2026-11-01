@@ -14,6 +14,47 @@ export type Database = {
   }
   public: {
     Tables: {
+      anime_list: {
+        Row: {
+          anilist_id: number
+          cover_url: string | null
+          created_at: string
+          score: number | null
+          status: string | null
+          title: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          anilist_id: number
+          cover_url?: string | null
+          created_at?: string
+          score?: number | null
+          status?: string | null
+          title: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          anilist_id?: number
+          cover_url?: string | null
+          created_at?: string
+          score?: number | null
+          status?: string | null
+          title?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "anime_list_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       anime_localizations: {
         Row: {
           anilist_id: number
