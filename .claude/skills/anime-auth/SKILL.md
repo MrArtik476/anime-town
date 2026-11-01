@@ -29,7 +29,7 @@ description: Use when implementing Anime Town registration, login, logout, OAuth
 
 ## Безопасность
 - Rate limit и CAPTCHA для регистрации — включить в настройках Supabase Auth.
-- Redirect URLs в Supabase: localhost, Vercel preview (`https://*-<team>.vercel.app/**`), продакшен-домен.
+- Redirect URLs в Supabase: `http://localhost:3000/**` (до этапа «Публикация» хостинга нет, ADR-017); продакшен-домен — добавить на этапе публикации.
 - Не логировать токены и пароли.
 
 ## Проверка

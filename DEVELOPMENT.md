@@ -35,6 +35,7 @@
 | jsdom | 30.1.3 | ^30 (dev) | окружение для тестов компонентов |
 | @testing-library/react / dom / user-event | 16.3.3 / 10.4.2 / 14.6.8 | dev | тесты компонентов (React 19) |
 | eslint | **9.39.5** | ^9 (dev) | + eslint-config-next 16.4.3. ESLint 10 не ставить: плагины `import`, `jsx-a11y`, `react` внутри eslint-config-next поддерживают только ≤ 9 |
+| tsx | 4.23.15 | ^4.23.15 (dev) | запуск TypeScript-скриптов с алиасами `@/` (`npm run translate`); встроенное удаление типов в Node не понимает `@/` и импорты без расширения |
 | supabase (CLI) | — | — | не установлен; ставится вместе с Supabase-проектом: `npm i -D supabase` |
 
 Пакеты вне этой таблицы и смена мажорных версий — только после подтверждения и записи в таблицу.
@@ -67,8 +68,10 @@ npm i -D @playwright/test
 "typecheck": "next typegen && tsc --noEmit",
 "test": "vitest run",
 "test:watch": "vitest",
-"test:e2e": "playwright test"
+"test:e2e": "playwright test",
+"translate": "tsx scripts/translate-backfill.ts"
 ```
+`translate` — фоновый машинный перевод без сервера (см. «Машинный перевод: настройка DeepL»).
 `typecheck` сначала генерирует типы маршрутов (`LayoutProps`, `PageProps` и т. п. в `.next/types`), иначе `tsc` без предварительного `build` падает с `Cannot find name 'LayoutProps'`.
 
 Добавить вместе с Supabase-проектом:
@@ -80,8 +83,8 @@ npm i -D @playwright/test
 ## Тестирование
 | Уровень | Команда | Что проверяет |
 |---|---|---|
-| Unit (Vitest 4 + jsdom + Testing Library) | `npm test` | `tests/unit/`: клиент AniList (повторы, таймаут, бюджет ожидания, 429, 404, сбои), лимитер и `proxy.ts` (`tests/unit/server/`, окружение node), `/api/catalog` (INVALID_PARAMS), маппинг и форматирование (HTML-сущности, хвосты источников), параметры каталога и сортировка, debounce, компоненты (карточка, постер, поиск, фильтры, мобильная шторка, чипсы, «Загрузить ещё», ошибки); русский контент — клиент Shikimori (пачки, User-Agent, ошибки), ограничитель частоты, BB-коды, кириллица, хеш, выбор источника названия и описания, сверка и отказоустойчивость `loadLocalizations`, русский поиск (MAL id → AniList, порядок и страницы), переводчик |
-| E2E (Playwright, Chromium) | `npm run test:e2e` | `tests/e2e/`: главная, каталог (поиск, фильтры, сортировка, «В тренде», URL, пагинация, ошибки, лимит 429), страница аниме (связи, заглушки, 404, сбой), API, русский контент (описание Shikimori с атрибуцией, поиск «Атака титанов»), машинный перевод (защита `/api/cron/translate`, перевод через мок DeepL, пометка «Машинный перевод (DeepL)», повторный запуск ничего не тратит), адаптивность на 1440×900, 1280×800, 768×1024, 390×844, 360×800 |
+| Unit (Vitest 4 + jsdom + Testing Library) | `npm test` | `tests/unit/`: клиент AniList (повторы, таймаут, бюджет ожидания, 429, 404, сбои), лимитер и `proxy.ts` (`tests/unit/server/`, окружение node), `/api/catalog` (INVALID_PARAMS), маппинг и форматирование (HTML-сущности, хвосты источников), параметры каталога и сортировка, debounce, компоненты (карточка, постер, поиск, фильтры, мобильная шторка, чипсы, «Загрузить ещё», ошибки); русский контент — клиент Shikimori (пачки, User-Agent, ошибки), ограничитель частоты, BB-коды, кириллица, хеш, выбор источника названия и описания, сверка и отказоустойчивость `loadLocalizations`, русский поиск (MAL id → AniList, порядок и страницы), переводчик, фоновое заполнение и общий код запуска (`backfill-run.ts`: `limit`, аргументы CLI, код результата, сводка) |
+| E2E (Playwright, Chromium) | `npm run test:e2e` | `tests/e2e/`: главная, каталог (поиск, фильтры, сортировка, «В тренде», URL, пагинация, ошибки, лимит 429), страница аниме (связи, заглушки, 404, сбой), API, русский контент (описание Shikimori с атрибуцией, поиск «Атака титанов»), машинный перевод (защита `/api/cron/translate`, перевод через мок DeepL, пометка «Машинный перевод (DeepL)», повторный запуск ничего не тратит), скрипт `npm run translate` против моков (`--limit`, сводка для GitHub Actions, коды выхода 0/1/2, ключ не попадает в вывод), адаптивность на 1440×900, 1280×800, 768×1024, 390×844, 360×800 |
 
 **Как устроены E2E.** `playwright.config.ts` поднимает четыре сервера:
 1. `tests/mock-anilist/server.mjs` — мок AniList GraphQL на `127.0.0.1:4010` с фикстурами (`fixtures.mjs`). Управляемые сценарии: поиск `__error__` → 500, `__ratelimit__` → 429 c `Retry-After: 60`, тайтл `500500` → 500, неизвестный ID → 404. Мок отклоняет запросы с `null`-переменными — так проверяется контракт клиента.
@@ -93,7 +96,21 @@ npm i -D @playwright/test
 
 Тесты не зависят от доступности и лимитов AniList. Скриншоты адаптивности — `test-results/screenshots/` (не коммитятся). Первый запуск: `npx playwright install chromium`.
 
+## CI (GitHub Actions)
+`.github/workflows/ci.yml` — на каждый push в `main`, каждый PR и вручную; повторный push в ту же ветку отменяет прошлый прогон.
+- job **checks**: `npm ci` → `lint` → `typecheck` → `test` → `build` (Node 24).
+- job **e2e**: `npx playwright install --with-deps chromium` → `npm run test:e2e` (сборка `.next-e2e` и моки AniList, Shikimori, DeepL поднимаются из `playwright.config.ts`); при падении — артефакт `playwright-report` на 7 дней.
+- Секреты CI не нужны и не передаются. Проверка workflow — `actionlint` (бинарник с github.com/rhysd/actionlint, не в зависимостях проекта).
+- Минуты Actions для приватного репозитория идут из лимита GitHub Free (2 000 мин/мес.).
+
+## Локальная production-сборка (вместо превью-деплоя)
+```bash
+npm run build && npm run start      # http://localhost:3000
+```
+Ручная проверка перед PR: главная, каталог, страница тайтла на 1440 и 390 px. Хостинга нет до этапа 8 (ADR-017).
+
 ## Переменные окружения
+- `NEXT_PUBLIC_SITE_URL` — базовый адрес сайта (canonical, Open Graph); локально `http://localhost:3000`, на этапе 8 — продакшен-домен.
 `.env.example` → копия в `.env.local`.
 - `ANILIST_GRAPHQL_URL` — адрес AniList GraphQL; по умолчанию `https://graphql.anilist.co`, ключ не нужен. Переопределяется только для тестов.
 - `SHIKIMORI_GRAPHQL_URL` — адрес Shikimori GraphQL; по умолчанию `https://shikimori.io/api/graphql`, ключ не нужен. Переопределяется только для тестов.
@@ -104,22 +121,28 @@ npm i -D @playwright/test
 
 ## Машинный перевод: настройка DeepL
 1. Ключ DeepL API (Free оканчивается на `:fx` → `api-free.deepl.com`; без `:fx` → `api.deepl.com`): developers.deepl.com → API Keys.
-2. В `.env.local` и в Vercel (Settings → Environment Variables, Production): `TRANSLATOR_PROVIDER=deepl`, `DEEPL_API_KEY=<ключ>`, `SUPABASE_SERVICE_ROLE_KEY=<secret key>`, `CRON_SECRET=<случайная строка ≥ 16 символов>`. Без service role ключа заполнение не тратит символы (`stopped: no_store`) — перевод потерялся бы при перезапуске.
-3. Расписание — `vercel.json` (`0 3 * * *`, раз в сутки; на Hobby чаще нельзя, время ± 59 мин). Vercel Cron работает только на production-деплое.
-4. Ручной запуск (локально после `npm run build && npm run start`):
+2. Локально — в `.env.local`: `TRANSLATOR_PROVIDER=deepl`, `DEEPL_API_KEY=<ключ>` (или `TRANSLATOR_API_KEY`), `NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY=<secret key>`. Без service role ключа заполнение не тратит символы (`stopped: no_store`) — перевод потерялся бы при перезапуске.
+3. Запуск без сервера (основной способ, ADR-017) — скрипт пишет прямо в Supabase:
+   ```bash
+   npm run translate -- --limit 5   # 1–100 тайтлов; без --limit — все кандидаты (≤ 100)
+   ```
+   Вывод — отчёт JSON. Код выхода: `0` — готово (в том числе `budget_exhausted`, `QUOTA_EXCEEDED`, временные сбои DeepL), `1` — сбой настройки или базы (`no_translator`, `no_store`, `usage_unavailable`, `AUTH`, `store_error`) или AniList, `2` — неверные аргументы.
+4. По расписанию — GitHub Actions `.github/workflows/translate-cron.yml`: раз в сутки в 03:17 UTC (GitHub может сдвинуть запуск) и вручную (Actions → Translate backfill → Run workflow, поле `limit`). `concurrency` не даёт двум заполнениям идти одновременно, `timeout-minutes: 15`. Секреты репозитория (Settings → Secrets and variables → Actions): `NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `TRANSLATOR_PROVIDER` (`deepl`), `TRANSLATOR_API_KEY`. Сводка запуска (переведено, символов, расход «до → после») — на странице прогона.
+   Из терминала: `gh workflow run translate-cron.yml -f limit=5`, затем `gh run watch`.
+5. Ручной запуск через приложение (нужен `CRON_SECRET` в `.env.local`; локальная production-сборка `npm run build && npm run start`):
    ```bash
    curl -H "Authorization: Bearer $CRON_SECRET" "http://localhost:3000/api/cron/translate?limit=5"
    ```
-   Ответ — отчёт без текстов: `candidates`, `pending`, `translated`, `characters`, `batches`, `stopped`, `usage { used, limit, ownLimit }`.
-5. Остаток квоты — `usage` в отчёте или `GET https://api-free.deepl.com/v2/usage` с заголовком `Authorization: DeepL-Auth-Key <ключ>`.
+   Ответ — тот же отчёт без текстов: `candidates`, `pending`, `translated`, `characters`, `batches`, `stopped`, `usage { used, limit, ownLimit }`.
+6. Остаток квоты — `usage` в отчёте или `GET https://api-free.deepl.com/v2/usage` с заголовком `Authorization: DeepL-Auth-Key <ключ>`.
 
 Значения `stopped`: `no_translator` (нет провайдера/ключа), `no_store` (нет service role), `usage_unavailable`, `budget_exhausted` (свой предел или лимит DeepL), `AUTH` (403 — неверный ключ), `QUOTA_EXCEEDED` (456), `RATE_LIMITED`/`UNAVAILABLE` (повторы исчерпаны, следующий запуск продолжит), `store_error`.
 
 ## Каталог: известные ограничения
 - **Русский контент** — названия и описания берутся с Shikimori. Тайтлы без описания на Shikimori получают машинный перевод DeepL при ежедневном фоновом заполнении — только трендовые и популярные (до 100 за раз); остальные показываются с английским описанием и пометкой. Русский поиск ограничен 50 лучшими совпадениями Shikimori. Названия в «Связанных произведениях» — пока по синонимам AniList.
 - **Лимит AniList** — 30 запросов в минуту на сервер (на 31.10.2026, обычно 90). Кэш снимает повторы, лимит по IP (20/мин, `proxy.ts`) — всплески одного клиента. Общий поток от многих IP он не ограничивает: при холодном кэше и всплеске трафика пользователь может увидеть «Слишком много запросов» с кнопкой «Повторить».
-- **Лимитер в памяти процесса.** На Vercel у каждого экземпляра свой счётчик; общий — реализация `RateLimiter` на Upstash или Supabase (`src/lib/rate-limit/catalog.ts`).
-- **Кэш `use cache` в памяти процесса.** На Vercel (serverless) он не общий между экземплярами; для продакшена — `use cache: remote` или собственная таблица `anime` (этап 2 после Supabase).
+- **Лимитер в памяти процесса.** Локально и на одном сервере этого достаточно; если на хостинге (этап 8) будет несколько экземпляров, у каждого свой счётчик — общий — реализация `RateLimiter` на Upstash или Supabase (`src/lib/rate-limit/catalog.ts`).
+- **Кэш `use cache` в памяти процесса.** Не общий между экземплярами и сбрасывается при перезапуске; для продакшена (этап 8) — `use cache: remote` или собственная таблица `anime` (этап 2 после Supabase).
 - **HTTP-статус 404.** Страница «не найдено» приходит с кодом 200 и `noindex`: при потоковой отрисовке (Partial Prerender) заголовки уже отправлены. Это поведение Next.js 16.
 - **«Загрузить ещё» не сохраняется в URL** — после перезагрузки показывается первая страница с теми же фильтрами.
 - **Общее число результатов** не показывается: `pageInfo.total` у AniList ненадёжен, используется `hasNextPage`.
@@ -131,7 +154,7 @@ npm i -D @playwright/test
 - `main` — стабильная основная ветка (`origin/main`, первый коммит `dd5a3a7`). Напрямую в неё не коммитим и не пушим.
 - Для каждой задачи — отдельная ветка от актуальной `main`: `feature/<name>`, `fix/<name>`, `docs/<name>` (служебное — `chore/<name>`).
 - Изменения предлагаются через Pull Request в `main`.
-- Перед слиянием проверяются изменения (diff PR) и результаты lint + typecheck + test + build + e2e.
+- Перед слиянием проверяются изменения (diff PR) и результаты lint + typecheck + test + build + e2e — их показывает CI (`.github/workflows/ci.yml`) в PR.
 - Conventional Commits в сообщениях коммитов (`feat:`, `fix:`, `docs:`, `chore:` …).
 - Коммит, push и создание PR — после разрешения пользователя; слияние PR — только после отдельного разрешения пользователя (см. CLAUDE.md → «Автономная разработка»).
 
@@ -143,7 +166,8 @@ npm i -D @playwright/test
 - Не удалять `main` ни локально, ни на GitHub.
 
 ## Секреты
-- Локально — `.env.local`; в облаке — Vercel Environment Variables и Supabase.
+- Локально — `.env.local`; для GitHub Actions — GitHub Secrets (Settings → Secrets and variables → Actions); на хостинге — его переменные окружения (этап 8).
+- В коде и тестах — только фиктивные значения (`tests/e2e/constants.ts`); CI секретов не получает.
 - Токен Obsidian MCP — переменная окружения пользователя Windows `OBSIDIAN_MCP_TOKEN`; в файлах только ссылка `${OBSIDIAN_MCP_TOKEN}`.
 - Перед коммитом: `git diff --cached` не должен содержать ключей (проверка в skill `anime-quality-check`).
 - Утёкший ключ — немедленно отозвать и перевыпустить, удаления из истории недостаточно.
