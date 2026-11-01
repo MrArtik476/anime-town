@@ -1,16 +1,18 @@
 import { defineConfig, devices } from "@playwright/test";
 
-import { E2E_CRON_SECRET, E2E_DEEPL_KEY } from "./tests/e2e/constants";
+import { E2E_CRON_SECRET, E2E_DEEPL_KEY, E2E_SUPABASE_KEY, E2E_SUPABASE_URL } from "./tests/e2e/constants";
 
 const APP_PORT = 3100;
 const MOCK_PORT = 4010;
 const SHIKIMORI_MOCK_PORT = 4020;
 const DEEPL_MOCK_PORT = 4030;
+const SUPABASE_MOCK_PORT = 4040;
 const isCI = !!process.env.CI;
 
 /**
  * E2E на production-сборке с контролируемым AniList:
  * - мок GraphQL (tests/mock-anilist) вместо graphql.anilist.co — тесты не зависят от сети и лимитов;
+ * - мок Supabase (tests/mock-supabase) — Auth и profiles в памяти, настоящий проект не используется;
  * - мок Shikimori (tests/mock-shikimori) — русские названия и описания; мок DeepL (tests/mock-deepl) — машинный перевод;
  *   переводы хранятся в памяти процесса (Supabase в E2E не используется);
  * - ANIME_TOWN_E2E=1 — отдельная папка сборки .next-e2e;
@@ -53,6 +55,12 @@ export default defineConfig({
       reuseExistingServer: !isCI,
     },
     {
+      command: "node tests/mock-supabase/server.mjs",
+      url: `http://127.0.0.1:${SUPABASE_MOCK_PORT}/health`,
+      env: { MOCK_SUPABASE_PORT: String(SUPABASE_MOCK_PORT) },
+      reuseExistingServer: !isCI,
+    },
+    {
       command: `npx next build && npx next start -p ${APP_PORT} -H 127.0.0.1`,
       url: `http://127.0.0.1:${APP_PORT}/catalog`,
       env: {
@@ -63,6 +71,11 @@ export default defineConfig({
         DEEPL_API_KEY: E2E_DEEPL_KEY,
         DEEPL_API_URL: `http://127.0.0.1:${DEEPL_MOCK_PORT}`,
         CRON_SECRET: E2E_CRON_SECRET,
+        // Supabase — мок; значения из .env.local не используются (переменные окружения важнее файла).
+        NEXT_PUBLIC_SUPABASE_URL: E2E_SUPABASE_URL,
+        NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: E2E_SUPABASE_KEY,
+        SUPABASE_SERVICE_ROLE_KEY: "",
+        NEXT_PUBLIC_SITE_URL: `http://127.0.0.1:${APP_PORT}`,
         NEXT_TELEMETRY_DISABLED: "1",
       },
       timeout: 240_000,
