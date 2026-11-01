@@ -100,4 +100,16 @@ test.describe("Плеер", () => {
       await expect(page.locator("video")).toHaveCount(0);
     }
   });
+
+  test("на телефоне (390 px) страница серии без горизонтальной прокрутки", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto("/anime/1/watch/1");
+    await ready(page);
+    // Длинное название серии в списке (обрезается многоточием) не должно растягивать сетку страницы.
+    await page.evaluate(() => {
+      const title = document.querySelector("aside li a span:nth-child(2)");
+      if (title) title.textContent = "Очень длинное название серии, которое не помещается в строку ".repeat(4);
+    });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+  });
 });
