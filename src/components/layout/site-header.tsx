@@ -1,6 +1,8 @@
 import Link from "next/link";
+import { Suspense } from "react";
 
 import { siteConfig } from "@/config/site";
+import { UserMenu, UserMenuFallback } from "@/features/auth/components/user-menu";
 
 import { MainNav } from "./main-nav";
 
@@ -23,7 +25,12 @@ export function SiteHeader() {
           </span>
         </Link>
 
-        <MainNav />
+        <div className="flex items-center gap-1 sm:gap-2">
+          <MainNav />
+          <Suspense fallback={<UserMenuFallback />}>
+            <UserMenu />
+          </Suspense>
+        </div>
       </div>
     </header>
   );
