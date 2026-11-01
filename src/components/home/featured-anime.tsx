@@ -96,7 +96,7 @@ export function FeaturedAnime({ anime }: { anime: FeaturedAnimeData }) {
           )}
 
           <div className="mt-7 flex flex-wrap gap-3">
-            <IntentLink href={`/anime/${anime.id}`} className={cn(buttonVariants({ size: "lg" }), "h-11 px-5")}>
+            <IntentLink href={`/anime/${anime.id}`} preview={anime} className={cn(buttonVariants({ size: "lg" }), "h-11 px-5")}>
               Подробнее
             </IntentLink>
             <Link href="/catalog" className={cn(buttonVariants({ variant: "outline", size: "lg" }), "h-11 px-5")}>

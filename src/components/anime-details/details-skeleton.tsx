@@ -16,15 +16,30 @@ export function DetailsSkeleton() {
           </div>
         </div>
       </div>
-      <div className="mt-10 grid gap-10 lg:grid-cols-[minmax(0,1fr)_20rem]">
-        <div className="space-y-3">
-          <Skeleton className="h-6 w-32" />
-          <Skeleton className="h-4 w-full" />
-          <Skeleton className="h-4 w-full" />
-          <Skeleton className="h-4 w-2/3" />
-        </div>
-        <Skeleton className="h-80 rounded-xl" />
+      <DetailsBodySkeletonGrid />
+    </div>
+  );
+}
+
+function DetailsBodySkeletonGrid() {
+  return (
+    <div className="mt-10 grid gap-10 lg:grid-cols-[minmax(0,1fr)_20rem]">
+      <div className="space-y-3">
+        <Skeleton className="h-6 w-32" />
+        <Skeleton className="h-4 w-full" />
+        <Skeleton className="h-4 w-full" />
+        <Skeleton className="h-4 w-2/3" />
       </div>
+      <Skeleton className="h-80 rounded-xl" />
+    </div>
+  );
+}
+
+/** Скелетон описания и деталей под уже показанной шапкой (DetailsLoading). */
+export function DetailsBodySkeleton() {
+  return (
+    <div role="status" aria-label="Загрузка описания" className="mx-auto max-w-7xl px-4 sm:px-6">
+      <DetailsBodySkeletonGrid />
     </div>
   );
 }

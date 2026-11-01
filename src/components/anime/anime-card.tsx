@@ -21,6 +21,7 @@ export function AnimeCard({ anime, className, priority }: AnimeCardProps) {
     <article className={cn("group min-w-0", className)} data-testid="anime-card">
       <IntentLink
         href={`/anime/${anime.id}`}
+        preview={anime}
         className="block rounded-lg outline-none focus-visible:ring-3 focus-visible:ring-ring/60"
       >
         <div className="relative aspect-[2/3] overflow-hidden rounded-lg border border-border/60 shadow-lg shadow-black/30">
