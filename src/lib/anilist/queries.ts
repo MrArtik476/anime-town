@@ -169,3 +169,35 @@ export const ANIME_DETAILS_QUERY = gql<AnimeDetailsData, AnimeDetailsVariables>(
     }
   }
 `);
+
+// --- Кандидаты на машинный перевод: трендовые и популярные тайтлы с описаниями (одним запросом) ---
+
+export type TranslationCandidateMedia = { id: number; idMal: number | null; description: string | null };
+
+export type TranslationCandidatesData = {
+  trending: AniListPage<TranslationCandidateMedia>;
+  popular: AniListPage<TranslationCandidateMedia>;
+};
+
+export type TranslationCandidatesVariables = { perPage: number; excludedGenres: string[] };
+
+export const TRANSLATION_CANDIDATES_QUERY = gql<TranslationCandidatesData, TranslationCandidatesVariables>(/* GraphQL */ `
+  query TranslationCandidates($perPage: Int!, $excludedGenres: [String]) {
+    trending: Page(page: 1, perPage: $perPage) {
+      ${PAGE_INFO_FIELDS}
+      media(type: ANIME, isAdult: false, genre_not_in: $excludedGenres, sort: [TRENDING_DESC, POPULARITY_DESC]) {
+        id
+        idMal
+        description(asHtml: false)
+      }
+    }
+    popular: Page(page: 1, perPage: $perPage) {
+      ${PAGE_INFO_FIELDS}
+      media(type: ANIME, isAdult: false, genre_not_in: $excludedGenres, sort: [POPULARITY_DESC]) {
+        id
+        idMal
+        description(asHtml: false)
+      }
+    }
+  }
+`);

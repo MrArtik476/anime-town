@@ -10,7 +10,6 @@ import { SiteHeader } from "@/components/layout/site-header";
 import { getLocalizedAnimeById } from "@/lib/anilist/api";
 import { truncate } from "@/lib/anime/format";
 import { parseAnimeId } from "@/lib/anime/ids";
-import { scheduleMachineTranslation } from "@/lib/localization/service";
 
 type AnimePageProps = PageProps<"/anime/[id]">;
 
@@ -73,9 +72,6 @@ async function AnimeContent({ params }: Pick<AnimePageProps, "params">) {
       </div>
     );
   }
-
-  // Нет русского описания — перевести в фоне после ответа (если переводчик настроен).
-  scheduleMachineTranslation(result.data, result.data.description);
 
   return <AnimeDetailsView anime={result.data} />;
 }

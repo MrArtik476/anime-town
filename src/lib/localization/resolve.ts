@@ -2,6 +2,7 @@ import type { ShikimoriLocalization } from "@/lib/shikimori/api";
 import type { AnimeCard, AnimeDescription } from "@/types/anime";
 
 import { isRussianText } from "./text";
+import { translatorLabel } from "./translator";
 import type { LocalizationInput, LocalizationRecord } from "./types";
 
 /** Через сколько перепроверять Shikimori: там могли появиться название или описание. */
@@ -37,6 +38,7 @@ export function mergeShikimori(
     descriptionRu: previous?.descriptionRu ?? null,
     source: previous?.source ?? null,
     sourceHash: previous?.sourceHash ?? null,
+    translator: previous?.translator ?? null,
     shikimoriUrl: previous?.shikimoriUrl ?? null,
   };
   if (!shikimori) return base;
@@ -50,6 +52,7 @@ export function mergeShikimori(
     descriptionRu: shikimori.descriptionRu ?? (keepMachine ? base.descriptionRu : null),
     source: shikimori.descriptionRu ? "shikimori" : keepMachine ? "machine" : null,
     sourceHash: shikimori.descriptionRu ? null : keepMachine ? base.sourceHash : null,
+    translator: shikimori.descriptionRu ? null : keepMachine ? base.translator : null,
   };
 }
 
@@ -60,6 +63,7 @@ export function withMachineTranslation(
   previous: LocalizationRecord | undefined,
   translation: string,
   sourceHash: string,
+  translator: string,
 ): LocalizationInput {
   return {
     anilistId,
@@ -70,7 +74,17 @@ export function withMachineTranslation(
     descriptionRu: translation,
     source: "machine",
     sourceHash,
+    translator,
   };
+}
+
+/**
+ * Нужен ли машинный перевод: только если на Shikimori нет описания и нет перевода текущего английского текста
+ * (хеш совпал — повторно не переводим).
+ */
+export function needsMachineTranslation(record: LocalizationRecord | undefined, originalHash: string): boolean {
+  if (record?.descriptionRu && record.source === "shikimori") return false;
+  return !(record?.descriptionRu && record.source === "machine" && record.sourceHash === originalHash);
 }
 
 /**
@@ -86,7 +100,7 @@ export function resolveDescription(
     return { language: "ru", source: "shikimori", text: record.descriptionRu, sourceUrl: record.shikimoriUrl };
   }
   if (record?.descriptionRu && record.source === "machine" && originalHash && record.sourceHash === originalHash) {
-    return { language: "ru", source: "machine", text: record.descriptionRu };
+    return { language: "ru", source: "machine", text: record.descriptionRu, translator: translatorLabel(record.translator) };
   }
   return original;
 }

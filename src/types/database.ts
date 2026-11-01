@@ -24,6 +24,7 @@ export type Database = {
           source_hash: string | null
           synonyms_ru: string[]
           title_ru: string | null
+          translator: string | null
           updated_at: string
         }
         Insert: {
@@ -35,6 +36,7 @@ export type Database = {
           source_hash?: string | null
           synonyms_ru?: string[]
           title_ru?: string | null
+          translator?: string | null
           updated_at?: string
         }
         Update: {
@@ -46,6 +48,7 @@ export type Database = {
           source_hash?: string | null
           synonyms_ru?: string[]
           title_ru?: string | null
+          translator?: string | null
           updated_at?: string
         }
         Relationships: []

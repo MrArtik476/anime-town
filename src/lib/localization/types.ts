@@ -9,6 +9,8 @@ export type LocalizationRecord = {
   source: "shikimori" | "machine" | null;
   /** SHA-256 английского описания, с которого сделан машинный перевод. */
   sourceHash: string | null;
+  /** Провайдер машинного перевода (deepl, yandex…); null для описаний Shikimori. */
+  translator: string | null;
   shikimoriUrl: string | null;
   /** Когда строку последний раз сверяли с источниками (ISO). */
   updatedAt: string;

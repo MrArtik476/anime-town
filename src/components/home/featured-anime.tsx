@@ -6,6 +6,7 @@ import { PosterImage } from "@/components/anime/poster-image";
 import { ScoreBadge } from "@/components/anime/score-badge";
 import { FadeIn } from "@/components/motion/fade-in";
 import { buttonVariants } from "@/components/ui/button";
+import { machineTranslationLabel } from "@/components/anime-details/anime-description";
 import { isAniListImage } from "@/lib/anilist/images";
 import { formatEpisodes, formatGenre, truncate } from "@/lib/anime/format";
 import { cn } from "@/lib/utils";
@@ -86,7 +87,9 @@ export function FeaturedAnime({ anime }: { anime: FeaturedAnimeData }) {
                 {truncate(anime.description.text.replace(/\s+/g, " "), 260)}
               </p>
               <p className="mt-1.5 text-xs text-muted-foreground/80">
-                {anime.description.source === "shikimori" ? "Описание: Shikimori" : "Машинный перевод"}
+                {anime.description.source === "shikimori"
+                  ? "Описание: Shikimori"
+                  : machineTranslationLabel(anime.description.translator)}
               </p>
             </div>
           )}

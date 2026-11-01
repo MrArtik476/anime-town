@@ -18,6 +18,7 @@ export function rowToRecord(row: Row): LocalizationRecord {
     descriptionRu: row.description_ru,
     source: SOURCES.find((source) => source === row.source) ?? null,
     sourceHash: row.source_hash,
+    translator: row.translator,
     shikimoriUrl: row.shikimori_url,
     updatedAt: row.updated_at,
   };
@@ -32,6 +33,7 @@ function recordToRow(record: LocalizationInput): Database["public"]["Tables"]["a
     description_ru: record.descriptionRu,
     source: record.source,
     source_hash: record.sourceHash,
+    translator: record.translator,
     shikimori_url: record.shikimoriUrl,
     // Триггер выставляет updated_at при UPDATE; при INSERT — значение по умолчанию.
   };
