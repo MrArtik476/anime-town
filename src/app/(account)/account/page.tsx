@@ -11,6 +11,7 @@ import { signOut } from "@/features/auth/actions";
 import { authLinkClass } from "@/features/auth/components/link-class";
 import { ProfileForm } from "@/features/auth/components/profile-form";
 import { getCurrentProfile } from "@/features/auth/session";
+import { MyList } from "@/features/list/components/my-list";
 
 export const metadata: Metadata = {
   title: "Профиль",
@@ -91,12 +92,23 @@ export default function AccountPage() {
       <SiteHeader />
       <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-10 sm:px-6 sm:py-14">
         <h1 className="font-heading text-3xl font-bold tracking-tight">Профиль</h1>
-        <p className="mt-2 text-muted-foreground">Ник, имя и настройки аккаунта.</p>
+        <p className="mt-2 text-muted-foreground">Ник, имя, настройки аккаунта и ваш список тайтлов.</p>
         <div className="mt-8">
           <Suspense fallback={<AccountSkeleton />}>
             <AccountContent />
           </Suspense>
         </div>
+
+        <section aria-labelledby="my-list-heading" className="mt-12">
+          <h2 id="my-list-heading" className="font-heading text-2xl font-bold tracking-tight">
+            Мой список
+          </h2>
+          <div className="mt-5">
+            <Suspense fallback={<Skeleton aria-hidden className="h-40 rounded-xl" />}>
+              <MyList />
+            </Suspense>
+          </div>
+        </section>
       </main>
       <SiteFooter />
     </>

@@ -1,3 +1,6 @@
+import { Suspense } from "react";
+
+import { ListPanel, ListPanelSkeleton } from "@/features/list/components/list-panel";
 import type { AnimeDetails } from "@/types/anime";
 
 import { AnimeDescription } from "./anime-description";
@@ -37,7 +40,11 @@ export function AnimeDetailsView({ anime }: { anime: AnimeDetails }) {
           <DetailsRelations relations={anime.relations} />
         </div>
 
-        <aside className="lg:pt-1">
+        <aside className="space-y-6 lg:pt-1">
+          {/* Личные данные — отдельно от закэшированного тайтла: читают сессию. */}
+          <Suspense fallback={<ListPanelSkeleton />}>
+            <ListPanel animeId={anime.id} />
+          </Suspense>
           <DetailsFacts anime={anime} />
         </aside>
       </div>
