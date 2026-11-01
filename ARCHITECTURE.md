@@ -49,8 +49,12 @@ src/
     anilist/               client.ts (HTTP, повторы, ошибки), queries.ts (GraphQL), types.ts,
                            errors.ts, api.ts (кэшируемые функции данных)
     anime/                 mappers.ts, format.ts, catalog-params.ts, season.ts, ids.ts
-    supabase/              клиенты: браузер, сервер, admin (service role — только запись переводов)
+    supabase/              клиенты: браузер, сервер, admin (service role — только запись переводов), proxy.ts (обновление сессии)
     shikimori/, localization/  русские названия и описания, машинный перевод, фоновое заполнение
+  features/auth/           аккаунты: actions.ts (Server Actions), session.ts (getClaims, профиль), validation.ts,
+                           errors.ts (ошибки Auth на русском), components/ (формы, UserMenu)
+  app/(auth)/              /login, /register, /forgot-password;  app/(account)/account — профиль;
+                           app/auth/callback (код из письма), app/auth/update-password
   types/                   anime.ts (доменные типы), database.ts
 scripts/
   translate-backfill.ts    `npm run translate` — фоновый перевод без сервера (GitHub Actions, локально)
@@ -60,7 +64,7 @@ scripts/
 tests/
   unit/                    Vitest: клиент, маппинг, форматирование, параметры, debounce, компоненты
   e2e/                     Playwright: главная, каталог, страница аниме, перевод, скрипт translate, адаптивность
-  mock-anilist/, mock-shikimori/, mock-deepl/   мок-серверы и фикстуры для E2E
+  mock-anilist/, mock-shikimori/, mock-deepl/, mock-supabase/   мок-серверы и фикстуры для E2E
 ```
 
 ### Каталог и AniList
@@ -159,7 +163,13 @@ tests/e2e/                 Playwright
 - **Каталог (сейчас)**: AniList GraphQL напрямую с сервера, с кэшем `use cache` (см. §2 «Каталог и AniList»).
 - **Каталог (позже)**: собственная таблица `anime` + фильтры → индексы + полнотекстовый поиск (`tsvector`, `pg_trgm` для опечаток), синхронизация с AniList по расписанию.
 - **Просмотр**: страница серии получает плейлист → HLS.js → каждые ~10 с upsert в `watch_progress`.
-- **Авторизация**: Supabase Auth (email + OAuth), сессия в cookies, `proxy.ts` (Next.js 16, бывш. `middleware.ts`) обновляет токен, проверка — `supabase.auth.getUser()`/`getClaims()` на сервере.
+- **Авторизация** (этап 3, ADR-018): Supabase Auth, email + пароль (OAuth — позже). Сессия в cookies (`@supabase/ssr`).
+  - `proxy.ts` на каждой странице: сначала лимит каталога (429), затем `updateSession` — `getClaims()` проверяет JWT и при необходимости обновляет токен; cookies и `Cache-Control/Expires/Pragma` уходят в ответ. Гость на `/account` или `/auth/update-password` → `/login?next=…`.
+  - Сервер доверяет только `getClaims()` (`features/auth/session.ts`), не `getSession()`. Страницы аккаунта проверяют пользователя ещё раз; данные защищены RLS.
+  - Формы — Server Actions (`features/auth/actions.ts`) с проверкой полей на сервере и сообщениями на русском; `next` — только относительный путь (защита от open redirect). После действия без редиректа — `refresh()`, не `revalidatePath` (он сбросил бы кэш AniList всего сайта).
+  - Письма (подтверждение почты, сброс пароля) ведут на `/auth/callback`: `exchangeCodeForSession` (PKCE) или `verifyOtp` (`token_hash`).
+  - Шапка: `UserMenu` («Войти» или ник) читает cookies внутри `<Suspense>` — остальная страница остаётся статической оболочкой (Partial Prerender).
+  - Профиль: `profiles` создаётся триггером `on_auth_user_created` (ник из формы или запасной `user_xxxxxxxx`), уникальность ника без учёта регистра; пользователь меняет только `username`, `display_name`, `avatar_url` (права на уровне колонок), роль — только сервер.
 - **Админка**: доступ по `profiles.role = 'admin'`, проверка и в RLS, и в layout.
 
 ## 5. Решения (ADR кратко)
@@ -179,6 +189,7 @@ tests/e2e/                 Playwright
 - ADR-014 Машинный перевод — за интерфейсом `Translator`; провайдера выбирает владелец проекта (цена, доступность и оплата из Беларуси, качество EN→RU). Выбран DeepL API Free (2026-11-01); Yandex — запасной вариант, добавляется записью в реестре провайдеров.
 - ADR-015 Фоновое заполнение переводов — по расписанию раз в сутки, а не «на лету» при открытии страницы и не Supabase `pg_cron` + Edge Function. Причины: переиспользуется весь серверный код на TypeScript (клиенты AniList, Shikimori, DeepL, хранилище) — Edge Function на Deno потребовала бы дубля; суточного запуска хватает (≈ 15 000 символов в день при месячном пределе 450 000). Работа идемпотентна (хеш описания), поэтому пропущенный или двойной запуск безопасен. Страница не ждёт внешний API и не тратит квоту на случайные тайтлы. **Механизм запуска пересмотрен ADR-017** (2026-11-01): было — Vercel Cron (`vercel.json`) → `/api/cron/translate`; стало — GitHub Actions `translate-cron.yml` → `npm run translate` (`scripts/translate-backfill.ts`, тот же `runTranslationBackfill`, запись прямо в Supabase). `GET /api/cron/translate` под `CRON_SECRET` (`Authorization: Bearer`) оставлен для ручного запуска.
 - ADR-016 Бюджет символов — по `GET /v2/usage` DeepL, без своего счётчика в базе: DeepL считает весь расход ключа, а свой предел `TRANSLATE_MONTHLY_CHAR_LIMIT` (450 000) оставляет запас до лимита провайдера. Провайдер машинного перевода сохраняется в `anime_localizations.translator` (миграция `20261101120000`), чтобы пометка «(DeepL)» оставалась честной после смены провайдера.
+- ADR-018 Аккаунты на Supabase Auth с SSR-сессией в cookies (2026-11-01). **Решение:** `@supabase/ssr` + `proxy.ts` (`getClaims` на каждом запросе), Server Actions без клиентского Supabase, профиль `profiles` через триггер на `auth.users` с RLS и правами на уровне колонок (роль не меняется через Data API), роль — `text` с check (`user`/`moderator`/`admin`), а не enum — проще расширять. Код аккаунтов — в `src/features/auth/` (первый модуль по целевой структуре). **Альтернативы:** NextAuth/Auth.js — второй источник пользователей рядом с Supabase и без RLS по `auth.uid()`; проверка сессии только в layout — не защищает Route Handlers и не обновляет токен. **Последствия:** proxy выполняется на всех страницах (при асимметричных ключах JWT проверка локальная); E2E — на моке Supabase (`tests/mock-supabase`), настоящий проект в тестах не используется; Supabase Auth до этапа 8 настроен на `http://localhost:3000`.
 - ADR-017 Отказ от Vercel: локальная разработка, GitHub Actions, хостинг на финале (2026-11-01). **Контекст:** зарегистрироваться в Vercel из Беларуси нельзя; от Vercel зависели только расписание перевода (Vercel Cron) и планы превью-деплоев. **Решение:** до этапа 8 «Публикация» хостинга нет — всё проверяется локально (`next dev`, `next build && next start`) и в GitHub Actions: `ci.yml` (lint, typecheck, unit, build; E2E на моках отдельной job) и `translate-cron.yml` (раз в сутки в 03:17 UTC и `workflow_dispatch`, `concurrency`, `timeout-minutes: 15`; секреты — GitHub Secrets `NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `TRANSLATOR_PROVIDER`, `TRANSLATOR_API_KEY`). Скрипт `npm run translate` (`tsx`) вызывает тот же `runTranslationBackfill` — логика не дублируется. `vercel.json` удалён; базовый URL — `NEXT_PUBLIC_SITE_URL` (локально `http://localhost:3000`). Хостинг выбирается на этапе 8: Netlify (если пустит регистрация) или Docker (Timeweb Cloud / VPS); `Dockerfile`/`netlify.toml` до тех пор не создаются. **Альтернативы:** Netlify сейчас — отложено, превью-деплои не нужны до появления пользователей; Supabase `pg_cron` + Edge Function — дубль кода на Deno (см. ADR-015); cron на своём ПК — зависит от включённого компьютера. **Последствия:** нет превью-ссылок на PR — проверка PR = CI + локальная production-сборка; расписание GitHub может сдвигаться на десятки минут; репозиторий приватный — минуты Actions из лимита GitHub Free (≈ 2 мин на прогон перевода); Supabase Auth на этапе 3 настраивается на `http://localhost:3000`, продакшен-домен — на этапе 8.
 
 Расширенная версия и история решений — в Obsidian: `Anime Town/02 - Архитектура/`.
