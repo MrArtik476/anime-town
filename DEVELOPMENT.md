@@ -145,7 +145,7 @@ npm run build && npm run start      # http://localhost:3000
    Ответ — тот же отчёт без текстов: `candidates`, `pending`, `translated`, `characters`, `batches`, `stopped`, `usage { used, limit, ownLimit }`.
 6. Остаток квоты — `usage` в отчёте или `GET https://api-free.deepl.com/v2/usage` с заголовком `Authorization: DeepL-Auth-Key <ключ>`.
 
-Значения `stopped`: `no_translator` (нет провайдера/ключа), `no_store` (нет service role), `usage_unavailable`, `budget_exhausted` (свой предел или лимит DeepL), `AUTH` (403 — неверный ключ), `QUOTA_EXCEEDED` (456), `RATE_LIMITED`/`UNAVAILABLE` (повторы исчерпаны, следующий запуск продолжит), `store_error`.
+Значения `stopped`: `no_translator` (нет провайдера/ключа), `no_store` (нет service role или в `SUPABASE_SERVICE_ROLE_KEY` по ошибке publishable-ключ `sb_publishable_…` — нужен secret key `sb_secret_…`; проверка до обращения к DeepL), `usage_unavailable`, `budget_exhausted` (свой предел или лимит DeepL), `AUTH` (403 — неверный ключ), `QUOTA_EXCEEDED` (456), `RATE_LIMITED`/`UNAVAILABLE` (повторы исчерпаны, следующий запуск продолжит), `store_error`.
 
 ## Каталог: известные ограничения
 - **Русский контент** — названия и описания берутся с Shikimori. Тайтлы без описания на Shikimori получают машинный перевод DeepL при ежедневном фоновом заполнении — только трендовые и популярные (до 100 за раз); остальные показываются с английским описанием и пометкой. Русский поиск ограничен 50 лучшими совпадениями Shikimori. Названия в «Связанных произведениях» — пока по синонимам AniList.
