@@ -1,4 +1,7 @@
 {
+  "permissions": {
+    "additionalDirectories": ["../Obsidian/Anime Town/Anime Town"]
+  },
   "hooks": {
     "SessionStart": [
       {
