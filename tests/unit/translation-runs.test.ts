@@ -112,7 +112,7 @@ describe("runJournaledBackfill", () => {
 describe("handleTranslateCronRequest", () => {
   const deps = (overrides: Partial<Parameters<typeof handleTranslateCronRequest>[1]> = {}) => {
     const { journal, runs } = memoryJournal();
-    const backfill = vi.fn(async (_options: { limit: number | undefined }) => report());
+    const backfill = vi.fn<(options: { limit: number | undefined }) => Promise<BackfillReport>>(async () => report());
     return { deps: { secret: SECRET, journal, backfill, ...overrides }, journal, backfill, runs };
   };
 
