@@ -15,7 +15,9 @@ Browser ──► Next.js 16 (App Router) — локально `next dev` / `nex
 
 Локально ────────► npm run verify     — lint, typecheck, unit, build, E2E на моках (перед слиянием; pre-push — quick)
 GitHub Actions ──► ci.yml             — те же шаги; не запускается (Actions недоступен)
-               └─► translate-cron.yml — раз в сутки `npm run translate` → DeepL → Supabase (без сервера приложения)
+               └─► translate-cron.yml — только ручной запуск; не запускается
+Supabase Cron ───► Edge Function translate-cron — раз в сутки 03:17 UTC (pg_cron + pg_net) → DeepL → anime_localizations;
+                    журнал и блокировка — translation_runs (ADR-024)
 ```
 
 Принципы:
@@ -69,11 +71,15 @@ src/
 scripts/
   verify.mjs               `npm run verify [-- --quick]` — проверки перед слиянием и в pre-push
   install-hooks.mjs        `prepare`: git config core.hooksPath .githooks
-  translate-backfill.ts    `npm run translate` — фоновый перевод без сервера (GitHub Actions, локально)
+  translate-backfill.ts    `npm run translate` — ручной фоновый перевод без сервера (журнал translation_runs)
+  build-edge-functions.mjs `npm run functions:build|check` — сборка Edge Function в один index.js (esbuild)
 .githooks/pre-push        npm run verify -- --quick
 .github/workflows/
   ci.yml                   lint, typecheck, unit, build; E2E на моках — не запускается (Actions недоступен)
-  translate-cron.yml       раз в сутки + workflow_dispatch → npm run translate
+  translate-cron.yml       только workflow_dispatch → npm run translate (расписание — Supabase Cron)
+supabase/functions/translate-cron/
+  main.ts                  исходник Edge Function: x-cron-secret → runTranslationBackfill (src/lib/localization/runs.ts)
+  index.js                 собранный бандл (npm run functions:build) — его деплоим
 tests/
   unit/                    Vitest: клиент, маппинг, форматирование, параметры, debounce, компоненты
   e2e/                     Playwright: главная, каталог, страница аниме, перевод, скрипт translate, адаптивность
@@ -105,7 +111,7 @@ tests/
 AniList (idMal) ──► lib/localization/service.ts ──► anime_localizations (Supabase; без ключа — память процесса)
                           │ новые и устаревшие                          ▲ lib/localization/backfill.ts → DeepL
                           └──► lib/shikimori (пачки по 50, User-Agent, 4 rps / 80 rpm)        ▲
-                                     GitHub Actions (раз в сутки) → npm run translate ──┤
+                       Supabase Cron → Edge Function translate-cron (раз в сутки) ──┤
                                      вручную: GET /api/cron/translate (CRON_SECRET) ────┘
 ```
 
@@ -203,6 +209,7 @@ tests/e2e/                 Playwright
 - ADR-014 Машинный перевод — за интерфейсом `Translator`; провайдера выбирает владелец проекта (цена, доступность и оплата из Беларуси, качество EN→RU). Выбран DeepL API Free (2026-11-01); Yandex — запасной вариант, добавляется записью в реестре провайдеров.
 - ADR-015 Фоновое заполнение переводов — по расписанию раз в сутки, а не «на лету» при открытии страницы и не Supabase `pg_cron` + Edge Function. Причины: переиспользуется весь серверный код на TypeScript (клиенты AniList, Shikimori, DeepL, хранилище) — Edge Function на Deno потребовала бы дубля; суточного запуска хватает (≈ 15 000 символов в день при месячном пределе 450 000). Работа идемпотентна (хеш описания), поэтому пропущенный или двойной запуск безопасен. Страница не ждёт внешний API и не тратит квоту на случайные тайтлы. **Механизм запуска пересмотрен ADR-017** (2026-11-01): было — Vercel Cron (`vercel.json`) → `/api/cron/translate`; стало — GitHub Actions `translate-cron.yml` → `npm run translate` (`scripts/translate-backfill.ts`, тот же `runTranslationBackfill`, запись прямо в Supabase). `GET /api/cron/translate` под `CRON_SECRET` (`Authorization: Bearer`) оставлен для ручного запуска.
 - ADR-016 Бюджет символов — по `GET /v2/usage` DeepL, без своего счётчика в базе: DeepL считает весь расход ключа, а свой предел `TRANSLATE_MONTHLY_CHAR_LIMIT` (450 000) оставляет запас до лимита провайдера. Провайдер машинного перевода сохраняется в `anime_localizations.translator` (миграция `20261101120000`), чтобы пометка «(DeepL)» оставалась честной после смены провайдера.
+- ADR-024 Фоновый перевод в Supabase: Edge Function + Supabase Cron (2026-11-02). **Контекст:** GitHub Actions для аккаунта недоступен окончательно (ограничение биллинга), хостинга до этапа 8 нет. **Решение:** Edge Function `translate-cron` выполняет тот же `runTranslationBackfill` (исходник `supabase/functions/translate-cron/main.ts` импортирует `src/lib/localization`, `npm run functions:build` собирает один `index.js`); pg_cron + pg_net вызывают её раз в сутки в 03:17 UTC с `x-cron-secret` из Vault; `verify_jwt = false`, секрет проверяет код (иначе 401). Секреты — в Supabase (`CRON_SECRET`, `TRANSLATOR_PROVIDER`, `DEEPL_API_KEY`), ключ базы — подставленный `SUPABASE_SECRET_KEYS.default`. Журнал и блокировка — `translation_runs` (`begin_translation_run`, один `running`, старше 5 мин — `abandoned`), её берут функция, `npm run translate` и `/api/cron/translate`. Лимиты прежние: 15 000 символов за запуск, ≤ 100 тайтлов, 450 000 в месяц. `translate-cron.yml` — только `workflow_dispatch`. **Альтернативы:** pg_cron → Next.js — приложение не размещено; копия логики на Deno — два места правил; import map на `src/` — сборка вне `supabase/functions` не гарантирована. **Последствия:** перевод не зависит от GitHub; `index.js` пересобирается после правок `src/lib/localization` (`functions:check` в `verify`); кэш страниц обновляется через ≤ 10 мин.
 - ADR-023 Прогресс просмотра — Route Handler + keepalive, `completed` в базе (2026-11-01). **Решение:** `POST /api/progress`, а не Server Action — запрос должен дойти и при закрытии вкладки (`fetch keepalive`); защита — проверка Origin (как у Server Actions), проверка тела, сессия, RLS «свои строки». `completed` — `generated always as (position ≥ 90 % duration)`: правило одно, клиент его не подделает. Название и обложка — снимок с сервера (блок «Продолжить просмотр» без AniList). Порог «не с начала» — 5 с, но не больше 10 % серии (короткие ролики). **Альтернативы:** Server Action — может оборваться при закрытии вкладки; `sendBeacon` — без JSON-заголовков и ответа; хранить прогресс в localStorage — не переносится между устройствами. **Проверка:** `npm run rls:check` — 47/47 (в т. ч. 7 по прогрессу).
 - ADR-022 Источник видео за абстракцией; до этапа 8 — тестовые открытые потоки (2026-11-01). **Контекст:** своего лицензированного видео нет, Storage на Free-плане (1 ГБ) для видео не подходит. **Решение:** серия → адрес для плеера только через `resolvePlaybackSource()` (`src/features/player/source.ts`); в базе — `episodes` (`license_status`: `licensed`/`own`/`open_license`/`none`, `hls_url` только `https://` или `/media/`, у открытой лицензии обязательна атрибуция) и `subtitles` (WebVTT); RLS показывает только серии с правами. Для разработки: собственный ролик `public/media/test/` (6 с, 360p/180p, fMP4, субтитры ru/en; сгенерирован `npm run build:test-hls` — canvas в Chromium → MediaRecorder H.264 → нарезка на init/сегмент, без ffmpeg и сторонних прав) и открытые фильмы Blender (Big Buck Bunny, Tears of Steel — CC BY 3.0, проверено на peach/mango.blender.org) через тестовые HLS-потоки Mux; заглушки добавляет `npm run seed:test-episodes` (удаление — `-- --remove`), в названиях серий — «Тестовое видео». **Альтернативы:** загрузка в Supabase Storage — лимиты Free-плана; встраивание сторонних плееров — против ADR-004. **Последствия:** на этапе 8 меняются `resolvePlaybackSource` и данные `episodes`, остальной код — нет; в бэклоге этапа 8 — выбор легального источника или режим «каталог + трейлеры AniList + ссылки на легальные площадки».
 - ADR-021 Аватары в Supabase Storage и средняя оценка через счётчик (2026-11-01). **Аватар:** публичный бакет `avatars` (до 1 МБ, JPEG/PNG/WebP), запись/перезапись/удаление — только в своей папке `<user id>/` (политики `storage.objects`), загрузка через Server Action с проверкой типа по первым байтам файла; адрес с `?v=<время>` — без устаревшего кэша. **Средняя оценка:** оценки в `anime_list` скрыты RLS, поэтому сумма и число ведутся триггером (`security definer`, execute отозван) в публичной `anime_rating_stats`; страница читает их клиентом без сессии внутри `use cache` (5 минут), своя оценка видна сразу (`updateTag` + `refresh`). **Альтернативы:** функция-агрегат security definer через RPC — открытая точка, которую отмечает советник; `count/avg` по `anime_list` на каждый показ — запрос по всем строкам. **Проверка доступа:** `npm run rls:check` — 33 проверки на настоящем проекте с временными пользователями и очисткой.

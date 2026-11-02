@@ -18,6 +18,8 @@ const eslintConfig = defineConfig([
     "test-results/**",
     // Служебные скрипты Trail (генерируются `trail init`, CommonJS)
     ".trail/**",
+    // Собранные Edge Functions (npm run functions:build); исходник — main.ts рядом
+    "supabase/functions/*/index.js",
   ]),
 ]);
 

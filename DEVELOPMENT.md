@@ -70,10 +70,12 @@ npm i -D @playwright/test
 "test:watch": "vitest",
 "test:e2e": "playwright test",
 "verify": "node scripts/verify.mjs",
+"functions:build": "node scripts/build-edge-functions.mjs",
+"functions:check": "node scripts/build-edge-functions.mjs --check",
 "prepare": "node scripts/install-hooks.mjs",
 "translate": "tsx scripts/translate-backfill.ts"
 ```
-`verify` — полный локальный прогон перед слиянием PR, `prepare` — подключение git-хуков (см. «Проверки перед слиянием»).
+`functions:build` / `functions:check` — сборка Edge Function `translate-cron` в один `index.js` и проверка, что сборка не устарела (ADR-024). `verify` — полный локальный прогон перед слиянием PR, `prepare` — подключение git-хуков (см. «Проверки перед слиянием»).
 `translate` — фоновый машинный перевод без сервера (см. «Машинный перевод: настройка DeepL»).
 `typecheck` сначала генерирует типы маршрутов (`LayoutProps`, `PageProps` и т. п. в `.next/types`), иначе `tsc` без предварительного `build` падает с `Cannot find name 'LayoutProps'`.
 
@@ -118,8 +120,8 @@ npm i -D @playwright/test
 
 ## Проверки перед слиянием (локально)
 GitHub Actions для аккаунта недоступен окончательно (санкционное ограничение биллинга): задачи CI не стартуют, PR не ждёт CI. Проверки идут локально:
-- **`npm run verify`** (`scripts/verify.mjs`) — lint → typecheck → unit → build → E2E по очереди; первый сбой останавливает прогон, в конце — сводка по шагам со временем. Код выхода 0 — всё зелёное, 1 — шаг упал. PR сливается **только** при полностью зелёном `verify` на актуальной ветке; результат прогона — в описании PR.
-- **`npm run verify -- --quick`** — lint → typecheck → unit.
+- **`npm run verify`** (`scripts/verify.mjs`) — lint → typecheck → `functions:check` → unit → build → E2E по очереди; первый сбой останавливает прогон, в конце — сводка по шагам со временем. Код выхода 0 — всё зелёное, 1 — шаг упал. PR сливается **только** при полностью зелёном `verify` на актуальной ветке; результат прогона — в описании PR.
+- **`npm run verify -- --quick`** — lint → typecheck → `functions:check` (собранная Edge Function совпадает с исходниками) → unit. Полный `verify` — то же плюс build и E2E.
 - **Хук pre-push** (`.githooks/pre-push`) запускает `verify -- --quick` перед каждым `git push`; при сбое push отменяется. Подключается сам при `npm install`/`npm ci` (скрипт `prepare` → `scripts/install-hooks.mjs` → `git config core.hooksPath .githooks`); вручную — `npm run prepare`. Обходить хук (`--no-verify`) нельзя.
 - Защита `main` с обязательным CI не включается (см. «Защита main»).
 
@@ -149,19 +151,55 @@ npm run build && npm run start      # http://localhost:3000
 ## Машинный перевод: настройка DeepL
 1. Ключ DeepL API (Free оканчивается на `:fx` → `api-free.deepl.com`; без `:fx` → `api.deepl.com`): developers.deepl.com → API Keys.
 2. Локально — в `.env.local`: `TRANSLATOR_PROVIDER=deepl`, `DEEPL_API_KEY=<ключ>` (или `TRANSLATOR_API_KEY`), `NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY=<secret key>`. Без service role ключа заполнение не тратит символы (`stopped: no_store`) — перевод потерялся бы при перезапуске.
-3. Запуск без сервера (основной способ, ADR-017) — скрипт пишет прямо в Supabase:
+3. **По расписанию — Supabase Cron → Edge Function `translate-cron` (ADR-024).** pg_cron раз в сутки в 03:17 UTC (задание `translate-cron`, миграция `…_translate_cron_schedule.sql`) делает `net.http_post` на `https://bhzshfkhpumyojxuygsc.supabase.co/functions/v1/translate-cron` с заголовком `x-cron-secret` из Vault. Функция выполняет тот же `runTranslationBackfill`: AniList (до 100 кандидатов) → сверка с Shikimori → DeepL → `anime_localizations`. Один запуск — не больше `TRANSLATE_RUN_CHAR_LIMIT` (15 000) символов и `limit` тайтлов (1–100), месяц — не больше `TRANSLATE_MONTHLY_CHAR_LIMIT` (450 000). Замер 02.11.2026: AniList 0,5–1,4 с, Shikimori на 93 тайтлах (худший случай, все устарели) 0,8–1,7 с, `/v2/usage` < 1 с — запуск укладывается в секунды при лимите функции 150 с.
+   - **Журнал и защита от двойного запуска** — таблица `translation_runs` (только service role): строка на запуск (`trigger` cron/manual, `status` running/ok/stopped/failed/abandoned, счётчики, `characters`, расход `usage_used`/`usage_limit`, `error`). Пока есть строка `running`, второй запуск не начинается (функция — 409 `already_running`, скрипт — сообщение и код 0). Строка `running` старше 5 минут при следующем запуске помечается `abandoned`. Блокировку берут все три способа запуска: функция, `npm run translate`, `/api/cron/translate`.
+   - **Секреты функции** (Dashboard → Edge Functions → Secrets): `CRON_SECRET`, `TRANSLATOR_PROVIDER=deepl`, `DEEPL_API_KEY`; необязательные `TRANSLATE_RUN_CHAR_LIMIT`, `TRANSLATE_MONTHLY_CHAR_LIMIT`. Ключ базы Supabase подставляет сам: функция берёт `default` из `SUPABASE_SECRET_KEYS` (новые ключи `sb_secret_`), иначе устаревший `SUPABASE_SERVICE_ROLE_KEY`; если подставленный не подходит — задать секрет `TRANSLATE_SUPABASE_SECRET_KEY`. Источник ключа функция пишет в лог (`ключ базы из …`), сам ключ — никогда.
+   - **Секрет в Vault** для pg_cron (SQL Editor; значение то же, что `CRON_SECRET`, оно лежит в `.env.local`):
+     ```sql
+     select vault.create_secret('<CRON_SECRET>', 'translate_cron_secret');
+     ```
+   - **Деплой функции.** Исходник — `supabase/functions/translate-cron/main.ts` (импортирует `src/lib/localization`), деплоится собранный `index.js`: `npm run functions:build` (esbuild, один файл; `npm run functions:check` в `verify` ловит устаревшую сборку) → Supabase MCP `deploy_edge_function` (`entrypoint_path: index.js`, `verify_jwt: false`) или `npx supabase functions deploy translate-cron --no-verify-jwt` после `supabase login`. `verify_jwt` выключен намеренно: новые ключи не JWT, доступ проверяет код по `x-cron-secret`; без него или с неверным — 401, не POST — 405.
+   - **Ручной вызов функции** (тело необязательно; `trigger: manual` — пометка в журнале):
+     ```bash
+     curl -X POST -H "x-cron-secret: $CRON_SECRET" -H "Content-Type: application/json" \
+       -d '{"trigger":"manual","limit":5}' https://bhzshfkhpumyojxuygsc.supabase.co/functions/v1/translate-cron
+     ```
+     Ответ: `{ ok, runId, status, report }`; коды: 200 — ok/stopped, 400 — неверное тело или `limit`, 401, 405, 409 — уже идёт запуск, 500 — сбой настройки или базы (`no_translator`, `no_store`, `AUTH`…), 502 — исключение (AniList, журнал).
+   - **Смена `CRON_SECRET`** — значения в двух местах должны совпадать, иначе ночной вызов получит 401:
+     1. Новое значение: `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"` → в `.env.local` (`CRON_SECRET=`).
+     2. Секрет функции: Dashboard → Edge Functions → Secrets → `CRON_SECRET` → новое значение (или `npx supabase secrets set CRON_SECRET=…`). Передеплой не нужен.
+     3. Vault (SQL Editor): `select vault.update_secret((select id from vault.secrets where name = 'translate_cron_secret'), '<новое значение>');`
+     4. Проверка: ручной вызов выше с новым секретом → 200; со старым → 401.
+   - **Наблюдение и невидимые сбои.** Если функция не стартовала или `net.http_post` не дошёл, строки в `translation_runs` не будет — поэтому смотреть все три источника (SQL Editor):
+     ```sql
+     -- 1. Последний успешный запуск (ok/stopped) и последние 5 запусков из журнала
+     select id, trigger, status, started_at, finished_at, translated, characters, stopped
+       from public.translation_runs where status in ('ok', 'stopped') order by started_at desc limit 1;
+     select id, trigger, status, started_at, finished_at - started_at as took, candidates, pending,
+            translated, characters, usage_used, usage_limit, stopped, error
+       from public.translation_runs order by started_at desc limit 5;
+     -- 2. Запуски задания pg_cron: статус выполнения SQL (failed — ошибка в самом задании)
+     select runid, status, return_message, start_time, end_time
+       from cron.job_run_details
+      where jobid = (select jobid from cron.job where jobname = 'translate-cron')
+      order by start_time desc limit 5;
+     -- 3. Ответы функции на вызовы pg_net (хранятся ~6 ч): код, ошибка сети или таймаута, начало тела
+     select id, created, status_code, timed_out, error_msg, left(content, 300) as body
+       from net._http_response order by created desc limit 5;
+     ```
+     Признаки сбоя: в журнале нет строки за сегодня после 03:17 UTC при `succeeded` в `cron.job_run_details` → смотреть `net._http_response` (401 — разошёлся `CRON_SECRET`; 5xx или `timed_out` — функция упала, логи: Dashboard → Edge Functions → translate-cron → Logs); `failed` в `cron.job_run_details` — ошибка SQL задания; задание не запускалось вовсе — `select jobname, schedule, active from cron.job where jobname = 'translate-cron'`.
+4. **GitHub Actions `translate-cron.yml` отключён:** расписание убрано, остался только `workflow_dispatch` (Actions для аккаунта недоступен; файл — на случай, если заработает).
+5. Ручной запуск без функции — скрипт пишет прямо в Supabase (тот же журнал и блокировка, `trigger = manual`):
    ```bash
    npm run translate -- --limit 5   # 1–100 тайтлов; без --limit — все кандидаты (≤ 100)
    ```
-   Вывод — отчёт JSON. Код выхода: `0` — готово (в том числе `budget_exhausted`, `QUOTA_EXCEEDED`, временные сбои DeepL), `1` — сбой настройки или базы (`no_translator`, `no_store`, `usage_unavailable`, `AUTH`, `store_error`) или AniList, `2` — неверные аргументы.
-4. По расписанию — GitHub Actions `.github/workflows/translate-cron.yml`: раз в сутки в 03:17 UTC (GitHub может сдвинуть запуск) и вручную (Actions → Translate backfill → Run workflow, поле `limit`). `concurrency` не даёт двум заполнениям идти одновременно, `timeout-minutes: 15`. Секреты репозитория (Settings → Secrets and variables → Actions): `NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `TRANSLATOR_PROVIDER` (`deepl`), `TRANSLATOR_API_KEY`. Сводка запуска (переведено, символов, расход «до → после») — на странице прогона.
-   Из терминала: `gh workflow run translate-cron.yml -f limit=5`, затем `gh run watch`.
-5. Ручной запуск через приложение (нужен `CRON_SECRET` в `.env.local`; локальная production-сборка `npm run build && npm run start`):
+   Вывод — отчёт JSON. Код выхода: `0` — готово (в том числе `budget_exhausted`, `QUOTA_EXCEEDED`, временные сбои DeepL и «уже идёт другой запуск»), `1` — сбой настройки или базы (`no_translator`, `no_store`, `usage_unavailable`, `AUTH`, `store_error`) или AniList, `2` — неверные аргументы.
+6. Ручной запуск через приложение (нужен `CRON_SECRET` в `.env.local`; локальная production-сборка `npm run build && npm run start`):
    ```bash
    curl -H "Authorization: Bearer $CRON_SECRET" "http://localhost:3000/api/cron/translate?limit=5"
    ```
-   Ответ — тот же отчёт без текстов: `candidates`, `pending`, `translated`, `characters`, `batches`, `stopped`, `usage { used, limit, ownLimit }`.
-6. Остаток квоты — `usage` в отчёте или `GET https://api-free.deepl.com/v2/usage` с заголовком `Authorization: DeepL-Auth-Key <ключ>`.
+   Ответ — тот же отчёт без текстов: `candidates`, `pending`, `translated`, `characters`, `batches`, `stopped`, `usage { used, limit, ownLimit }`; 409 — уже идёт другой запуск.
+7. Остаток квоты — `usage` в отчёте, `usage_used`/`usage_limit` в `translation_runs` или `GET https://api-free.deepl.com/v2/usage` с заголовком `Authorization: DeepL-Auth-Key <ключ>`.
 
 Значения `stopped`: `no_translator` (нет провайдера/ключа), `no_store` (нет service role или в `SUPABASE_SERVICE_ROLE_KEY` по ошибке publishable-ключ `sb_publishable_…` — нужен secret key `sb_secret_…`; проверка до обращения к DeepL), `usage_unavailable`, `budget_exhausted` (свой предел или лимит DeepL), `AUTH` (403 — неверный ключ), `QUOTA_EXCEEDED` (456), `RATE_LIMITED`/`UNAVAILABLE` (повторы исчерпаны, следующий запуск продолжит), `store_error`.
 
@@ -171,7 +209,7 @@ npm run build && npm run start      # http://localhost:3000
 
 ## Каталог: известные ограничения
 - **Первый показ тайтла и новый поиск** упираются во внешние API: AniList 0,4–0,8 с, Shikimori 0,2–0,9 с из Беларуси. Шапка тайтла показывается сразу из карточки, детали — когда ответит AniList. Общий кэш в Supabase — этап 8 (ADR-019).
-- **Перевод на странице тайтла** после ежедневного заполнения в GitHub Actions появляется в течение 10 минут (кэш страницы); ручной `/api/cron/translate` — сразу.
+- **Перевод на странице тайтла** после ежедневного заполнения (Supabase Cron) появляется в течение 10 минут (кэш страницы); ручной `/api/cron/translate` — сразу.
 - **Русский контент** — названия и описания берутся с Shikimori. Тайтлы без описания на Shikimori получают машинный перевод DeepL при ежедневном фоновом заполнении — только трендовые и популярные (до 100 за раз); остальные показываются с английским описанием и пометкой. Русский поиск ограничен 50 лучшими совпадениями Shikimori. Названия в «Связанных произведениях» — пока по синонимам AniList.
 - **Лимит AniList** — 30 запросов в минуту на сервер (на 31.10.2026, обычно 90). Кэш снимает повторы, лимит по IP (20/мин, `proxy.ts`) — всплески одного клиента. Общий поток от многих IP он не ограничивает: при холодном кэше и всплеске трафика пользователь может увидеть «Слишком много запросов» с кнопкой «Повторить».
 - **Лимитер в памяти процесса.** Локально и на одном сервере этого достаточно; если на хостинге (этап 8) будет несколько экземпляров, у каждого свой счётчик — общий — реализация `RateLimiter` на Upstash или Supabase (`src/lib/rate-limit/catalog.ts`).
@@ -199,7 +237,7 @@ npm run build && npm run start      # http://localhost:3000
 - Не удалять `main` ни локально, ни на GitHub.
 
 ## Секреты
-- Локально — `.env.local`; для GitHub Actions — GitHub Secrets (Settings → Secrets and variables → Actions); на хостинге — его переменные окружения (этап 8).
+- Локально — `.env.local`; для Edge Function `translate-cron` — секреты функции Supabase (Dashboard → Edge Functions → Secrets) и Vault (`translate_cron_secret` для pg_cron), см. «Машинный перевод»; GitHub Secrets не используются (Actions недоступен); на хостинге — его переменные окружения (этап 8).
 - В коде и тестах — только фиктивные значения (`tests/e2e/constants.ts`); CI секретов не получает.
 - Токен Obsidian MCP — переменная окружения пользователя Windows `OBSIDIAN_MCP_TOKEN`; в файлах только ссылка `${OBSIDIAN_MCP_TOKEN}`.
 - Перед коммитом: `git diff --cached` не должен содержать ключей (проверка в skill `anime-quality-check`).

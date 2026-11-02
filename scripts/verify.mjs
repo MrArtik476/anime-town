@@ -1,10 +1,10 @@
 // Полная локальная проверка перед слиянием PR (GitHub Actions недоступен — DEVELOPMENT.md, «Проверки перед слиянием»):
-// `npm run verify` — lint → typecheck → unit → build → E2E; `npm run verify -- --quick` — lint → typecheck → unit
+// `npm run verify` — lint → typecheck → сборка Edge Function → unit → build → E2E; `--quick` — без build и E2E
 // (его вызывает хук .githooks/pre-push). Шаги идут по очереди, первый сбой останавливает прогон.
 // Код выхода: 0 — всё зелёное, 1 — шаг упал, 2 — неверные аргументы.
 import { spawnSync } from "node:child_process";
 
-const QUICK = ["lint", "typecheck", "test"];
+const QUICK = ["lint", "typecheck", "functions:check", "test"];
 const FULL = [...QUICK, "build", "test:e2e"];
 
 const args = process.argv.slice(2);

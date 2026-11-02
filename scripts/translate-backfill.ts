@@ -1,12 +1,13 @@
 /**
- * Фоновое заполнение машинных переводов без сервера (ADR-017): `npm run translate [-- --limit N]`.
+ * Ручной запуск фонового заполнения машинных переводов: `npm run translate [-- --limit N]`.
  *
- * Запускает тот же `runTranslationBackfill`, что и `GET /api/cron/translate`, и пишет переводы прямо
- * в Supabase (`anime_localizations`, service role). По расписанию его вызывает GitHub Actions
- * (.github/workflows/translate-cron.yml); локально переменные берутся из `.env.local`.
+ * Запускает тот же `runTranslationBackfill`, что и Edge Function `translate-cron` (по расписанию Supabase Cron,
+ * ADR-024), и пишет переводы прямо в Supabase (`anime_localizations`, service role). Запуск отмечается
+ * в журнале `translation_runs` (trigger = manual) и не начнётся, пока идёт другой. Переменные — из `.env.local`.
  *
- * Вывод — отчёт JSON без текстов и ключей; в GitHub Actions ещё и сводка в `$GITHUB_STEP_SUMMARY`.
- * Код выхода: 0 — готово (в том числе исчерпанная квота), 1 — сбой настройки или базы, 2 — неверные аргументы.
+ * Вывод — отчёт JSON без текстов и ключей; при `$GITHUB_STEP_SUMMARY` ещё и сводка (workflow_dispatch).
+ * Код выхода: 0 — готово (в том числе исчерпанная квота и «уже идёт другой запуск»), 1 — сбой настройки
+ * или базы, 2 — неверные аргументы.
  */
 import { appendFileSync, existsSync, readFileSync } from "node:fs";
 import { parseEnv } from "node:util";
@@ -45,8 +46,18 @@ async function main(): Promise<number> {
   loadEnvLocal();
   // Модули читают окружение при вызове, но импорт после загрузки .env.local надёжнее.
   const { runTranslationBackfill } = await import("@/lib/localization/backfill");
+  const { getRunJournal, runJournaledBackfill } = await import("@/lib/localization/runs");
 
-  const report = await runTranslationBackfill({ limit: args.limit });
+  const run = await runJournaledBackfill({
+    journal: getRunJournal(),
+    trigger: "manual",
+    backfill: () => runTranslationBackfill({ limit: args.limit }),
+  });
+  if (run.busy) {
+    console.error("[translator] уже идёт другой запуск (translation_runs) — пропуск");
+    return 0;
+  }
+  const { report } = run;
   console.log(JSON.stringify(report, null, 2));
   if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, formatBackfillSummary(report));
 

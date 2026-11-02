@@ -252,4 +252,45 @@ describe("runTranslationBackfill", () => {
     });
     expect(report).toMatchObject({ pending: 2, translated: 2 });
   });
+
+  it("limit считается после отбора: уже переведённые тайтлы место в limit не занимают", async () => {
+    const store = createMemoryStore();
+    const { translator, translate } = fakeTranslator();
+    await runTranslationBackfill({ translator, store, env: E2E_ENV, fetchCandidates: async () => [candidate(1, "A.")] });
+
+    const report = await runTranslationBackfill({
+      translator,
+      store,
+      env: E2E_ENV,
+      limit: 1,
+      fetchCandidates: async () => [candidate(1, "A."), candidate(2, "B."), candidate(3, "C.")],
+    });
+    expect(report).toMatchObject({ candidates: 3, pending: 1, translated: 1 });
+    expect(translate.mock.calls[1][0]).toEqual(["B."]);
+  });
+
+  it("бюджет запуска (TRANSLATE_RUN_CHAR_LIMIT) делится между пачками и останавливает запуск", async () => {
+    const { translator, translate } = fakeTranslator();
+    const report = await runTranslationBackfill({
+      translator,
+      store: createMemoryStore(),
+      env: { ...E2E_ENV, TRANSLATE_RUN_CHAR_LIMIT: "12" },
+      fetchCandidates: async () => [1, 2, 3, 4].map((id) => candidate(id, "1234")),
+    });
+    // Пачка 1: 8 символов, остаток 4; пачка 2: помещается один текст — остановка.
+    expect(report).toMatchObject({ translated: 3, characters: 12, batches: 2, stopped: "budget_exhausted" });
+    expect(translate.mock.calls.map(([texts]) => texts.length)).toEqual([2, 1]);
+  });
+
+  it("текст больше одного запроса пропускается и считается в skippedOversized", async () => {
+    const { translator, translate } = fakeTranslator(undefined, { maxBatchBytes: 300 });
+    const report = await runTranslationBackfill({
+      translator,
+      store: createMemoryStore(),
+      env: E2E_ENV,
+      fetchCandidates: async () => [candidate(1, "x".repeat(100)), candidate(2, "ok")],
+    });
+    expect(report).toMatchObject({ pending: 2, skippedOversized: 1, translated: 1, stopped: null });
+    expect(translate.mock.calls[0][0]).toEqual(["ok"]);
+  });
 });

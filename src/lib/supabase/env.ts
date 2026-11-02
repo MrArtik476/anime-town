@@ -44,7 +44,8 @@ export function isPublishableKey(key: string): boolean {
   const payload = value.split(".")[1];
   if (!value.startsWith("eyJ") || !payload) return false;
   try {
-    return JSON.parse(Buffer.from(payload, "base64url").toString("utf8")).role === "anon";
+    // atob вместо Buffer: модуль попадает и в Edge Function (Deno). Полезная нагрузка JWT — ASCII.
+    return JSON.parse(atob(payload.replace(/-/g, "+").replace(/_/g, "/"))).role === "anon";
   } catch {
     return false;
   }

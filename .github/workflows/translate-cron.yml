@@ -1,16 +1,13 @@
-# Фоновое заполнение машинных переводов без хостинга (ADR-017, заменяет Vercel Cron из ADR-015).
-# Раз в сутки GitHub Actions запускает `npm run translate` — тот же runTranslationBackfill, что и
-# /api/cron/translate, — и переводы пишутся прямо в Supabase (anime_localizations, service role).
+# ОТКЛЮЧЕНО: запуск по расписанию переехал в Supabase (ADR-024) — Edge Function `translate-cron`,
+# которую раз в сутки в 03:17 UTC вызывает Supabase Cron (pg_cron + pg_net). GitHub Actions для аккаунта
+# недоступен (ограничение биллинга), поэтому `schedule` убран; файл оставлен с ручным запуском на случай,
+# если Actions снова заработает. Запуск отмечается в translation_runs и не пересекается с Supabase Cron.
 #
-# Секреты репозитория (Settings → Secrets and variables → Actions):
+# Ручной запуск выполняет `npm run translate` — тот же runTranslationBackfill. Секреты репозитория:
 #   NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, TRANSLATOR_PROVIDER (deepl), TRANSLATOR_API_KEY.
-# Без них скрипт ничего не тратит и завершается с кодом 1 (no_translator / no_store).
-name: Translate backfill
+name: Translate backfill (manual only)
 
 on:
-  schedule:
-    # 03:17 UTC — не ровно в начале часа: на :00 у GitHub пик очереди и задержки запуска.
-    - cron: "17 3 * * *"
   workflow_dispatch:
     inputs:
       limit:
