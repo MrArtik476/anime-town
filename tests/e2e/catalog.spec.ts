@@ -5,6 +5,16 @@ const search = (page: import("@playwright/test").Page) => page.getByLabel("По�
 const desktopFilter = (page: import("@playwright/test").Page, label: string) =>
   page.getByRole("complementary", { name: "Фильтры каталога" }).getByLabel(label);
 
+/**
+ * focus() и pressSequentially() не ждут видимости, в отличие от fill() и click(). React 19.2 показывает
+ * потоковые Suspense-границы пакетами (~300 мс): до показа каталог лежит в скрытом <div hidden>, перенос
+ * на место снимает фокус, и набранное уходило в body. Пользователь скрытое поле не сфокусирует — ждём показа.
+ */
+async function gotoCatalogSearch(page: import("@playwright/test").Page) {
+  await page.goto("/catalog");
+  await expect(search(page)).toBeVisible();
+}
+
 test.describe("Каталог", () => {
   test("первая страница и «Загрузить ещё» до конца списка", async ({ page, consoleErrors }) => {
     await page.goto("/catalog");
@@ -18,7 +28,7 @@ test.describe("Каталог", () => {
   });
 
   test("поиск с задержкой, синхронизация с URL и очистка", async ({ page }) => {
-    await page.goto("/catalog");
+    await gotoCatalogSearch(page);
 
     await search(page).pressSequentially("Star", { delay: 50 });
     await expect(page).toHaveURL(/\?q=Star$/);
@@ -130,7 +140,7 @@ test.describe("Каталог", () => {
   });
 
   test("управление с клавиатуры: поиск и фильтр", async ({ page }) => {
-    await page.goto("/catalog");
+    await gotoCatalogSearch(page);
     await search(page).focus();
     await page.keyboard.type("Test Anime 1");
     await page.keyboard.press("Enter");
