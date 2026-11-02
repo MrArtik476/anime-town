@@ -16,6 +16,8 @@ const eslintConfig = defineConfig([
     ".next-e2e/**",
     "playwright-report/**",
     "test-results/**",
+    // Служебные скрипты Trail (генерируются `trail init`, CommonJS)
+    ".trail/**",
   ]),
 ]);
 
