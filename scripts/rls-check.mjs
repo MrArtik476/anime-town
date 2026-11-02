@@ -183,6 +183,32 @@ try {
   const trUser = await A.client.from("anime_localizations").update({ title_ru: "x" }).eq("anilist_id", 1).select("anilist_id");
   check("пользователь не меняет переводы", blocked(trUser), rows(trUser));
 
+  // ---- translation_runs: журнал фонового перевода и блокировка — только service role (ADR-024) ----
+  for (const [who, client] of [
+    ["пользователь", A.client],
+    ["гость", anon],
+  ]) {
+    const read = await client.from("translation_runs").select("id").limit(1);
+    check(`${who} не читает журнал перевода`, blocked(read), rows(read));
+    const write = await client.from("translation_runs").insert({ trigger: "manual" });
+    check(`${who} не пишет журнал перевода`, !!write.error, write.error?.code ?? "ЗАПИСАЛ");
+    const lock = await client.rpc("begin_translation_run", { p_trigger: "manual" });
+    check(`${who} не берёт блокировку перевода`, !!lock.error, lock.error?.code ?? "ВЗЯЛ");
+  }
+
+  // ---- Edge Function translate-cron: без верного x-cron-secret — 401, перевод не запускается ----
+  const cronUrl = `${URL}/functions/v1/translate-cron`;
+  const userToken = (await A.client.auth.getSession()).data.session?.access_token;
+  for (const [name, headers] of [
+    ["без заголовков", {}],
+    ["с publishable-ключом", { apikey: PUBLISHABLE }],
+    ["с JWT пользователя", { Authorization: `Bearer ${userToken}` }],
+    ["с неверным секретом", { "x-cron-secret": `wrong-${tag}` }],
+  ]) {
+    const response = await fetch(cronUrl, { method: "POST", headers: { "Content-Type": "application/json", ...headers }, body: "{}" });
+    check(`translate-cron ${name} — 401`, response.status === 401, `HTTP ${response.status}`);
+  }
+
   // ---- гость ----
   check("гость читает профили", (await anon.from("profiles").select("id").in("id", [A.id, B.id])).data?.length === 2);
   const anonUpd = await anon.from("profiles").update({ display_name: "anon" }).eq("id", A.id).select("id");

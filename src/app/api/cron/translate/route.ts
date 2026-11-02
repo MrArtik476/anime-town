@@ -5,9 +5,11 @@ import type { NextRequest } from "next/server";
 
 import { runTranslationBackfill } from "@/lib/localization/backfill";
 import { parseBackfillLimit } from "@/lib/localization/backfill-run";
+import { getRunJournal, runJournaledBackfill } from "@/lib/localization/runs";
 
-// Ручной запуск фонового заполнения (ADR-017): GET с заголовком Authorization: Bearer $CRON_SECRET.
-// По расписанию заполнение запускает GitHub Actions скриптом `npm run translate` (тот же runTranslationBackfill).
+// Ручной запуск фонового заполнения: GET с заголовком Authorization: Bearer $CRON_SECRET.
+// По расписанию заполнение запускает Edge Function translate-cron (Supabase Cron, ADR-024) — тот же runTranslationBackfill.
+// Запуск отмечается в translation_runs и не начнётся, пока идёт другой (409).
 export const maxDuration = 300;
 
 function authorized(request: NextRequest): boolean {
@@ -33,7 +35,13 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const report = await runTranslationBackfill({ limit: parsed.limit });
+    const run = await runJournaledBackfill({
+      journal: getRunJournal(),
+      trigger: "manual",
+      backfill: () => runTranslationBackfill({ limit: parsed.limit }),
+    });
+    if (run.busy) return Response.json({ ok: false, error: "already_running" }, { status: 409 });
+    const { report } = run;
     // Страницы тайтлов кэшируются с переводом (`use cache`, тег localization) — новые переводы видны сразу.
     if (report.translated > 0) revalidateTag("localization", { expire: 0 });
     console.info("[translator] backfill", JSON.stringify(report));

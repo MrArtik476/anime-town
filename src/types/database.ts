@@ -222,6 +222,63 @@ export type Database = {
           },
         ]
       }
+      translation_runs: {
+        Row: {
+          batches: number | null
+          candidates: number | null
+          characters: number | null
+          error: string | null
+          finished_at: string | null
+          id: number
+          own_limit: number | null
+          pending: number | null
+          skipped_oversized: number | null
+          started_at: string
+          status: string
+          stopped: string | null
+          translated: number | null
+          trigger: string
+          usage_limit: number | null
+          usage_used: number | null
+        }
+        Insert: {
+          batches?: number | null
+          candidates?: number | null
+          characters?: number | null
+          error?: string | null
+          finished_at?: string | null
+          id?: never
+          own_limit?: number | null
+          pending?: number | null
+          skipped_oversized?: number | null
+          started_at?: string
+          status?: string
+          stopped?: string | null
+          translated?: number | null
+          trigger: string
+          usage_limit?: number | null
+          usage_used?: number | null
+        }
+        Update: {
+          batches?: number | null
+          candidates?: number | null
+          characters?: number | null
+          error?: string | null
+          finished_at?: string | null
+          id?: never
+          own_limit?: number | null
+          pending?: number | null
+          skipped_oversized?: number | null
+          started_at?: string
+          status?: string
+          stopped?: string | null
+          translated?: number | null
+          trigger?: string
+          usage_limit?: number | null
+          usage_used?: number | null
+        }
+        Relationships: []
+      }
       watch_progress: {
         Row: {
           anilist_id: number
@@ -281,7 +338,10 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      begin_translation_run: {
+        Args: { p_stale_after_seconds?: number; p_trigger: string }
+        Returns: number
+      }
     }
     Enums: {
       [_ in never]: never

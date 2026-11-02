@@ -1,9 +1,12 @@
 /** Накладные расходы JSON-тела запроса без текстов (поля языков, скобки) — с запасом. */
 const BODY_OVERHEAD_BYTES = 256;
 
+// TextEncoder вместо Buffer: модуль работает и в Edge Function (Deno).
+const utf8 = new TextEncoder();
+
 /** Сколько байт текст займёт в JSON-массиве `text` (с кавычками, экранированием и запятой). */
 export function jsonTextBytes(text: string): number {
-  return Buffer.byteLength(JSON.stringify(text), "utf8") + 1;
+  return utf8.encode(JSON.stringify(text)).length + 1;
 }
 
 /**
