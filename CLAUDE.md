@@ -24,7 +24,7 @@ Skills меняются в `Buld/.claude/skills/`, после чего копи�
 - Supabase: Postgres, Auth, Storage, RLS; клиент `@supabase/ssr`
 - AniList GraphQL API — метаданные; HLS.js — воспроизведение
 - Playwright, ESLint **9** (flat config; 10 несовместим с плагинами eslint-config-next), `tsc --noEmit`
-- Хостинга нет до этапа 8 «Публикация» (ADR-017): разработка и проверка — локально и в GitHub Actions; Vercel не используется (регистрация из Беларуси недоступна). Node.js ≥ 20.9
+- Хостинга нет до этапа 8 «Публикация» (ADR-017): разработка и проверка — локально (`npm run verify` + хук pre-push; GitHub Actions недоступен), ежедневный перевод — Supabase Cron (ADR-024); Vercel не используется (регистрация из Беларуси недоступна). Node.js ≥ 20.9
 - Точные версии — DEVELOPMENT.md → «Версии пакетов».
 
 ## Next.js: AGENTS.md
