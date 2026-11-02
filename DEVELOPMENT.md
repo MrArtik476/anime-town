@@ -69,8 +69,11 @@ npm i -D @playwright/test
 "test": "vitest run",
 "test:watch": "vitest",
 "test:e2e": "playwright test",
+"verify": "node scripts/verify.mjs",
+"prepare": "node scripts/install-hooks.mjs",
 "translate": "tsx scripts/translate-backfill.ts"
 ```
+`verify` — полный локальный прогон перед слиянием PR, `prepare` — подключение git-хуков (см. «Проверки перед слиянием»).
 `translate` — фоновый машинный перевод без сервера (см. «Машинный перевод: настройка DeepL»).
 `typecheck` сначала генерирует типы маршрутов (`LayoutProps`, `PageProps` и т. п. в `.next/types`), иначе `tsc` без предварительного `build` падает с `Cannot find name 'LayoutProps'`.
 
@@ -113,8 +116,15 @@ npm i -D @playwright/test
 3. Нужны `NEXT_PUBLIC_SUPABASE_URL` и `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` в `.env.local`; service role для аккаунтов не нужен.
 4. Маршруты: `/register`, `/login` (`?next=` — куда вернуть), `/forgot-password`, `/auth/callback`, `/auth/update-password`, `/account`.
 
-## CI (GitHub Actions)
-`.github/workflows/ci.yml` — на каждый push в `main`, каждый PR и вручную; повторный push в ту же ветку отменяет прошлый прогон.
+## Проверки перед слиянием (локально)
+GitHub Actions для аккаунта недоступен окончательно (санкционное ограничение биллинга): задачи CI не стартуют, PR не ждёт CI. Проверки идут локально:
+- **`npm run verify`** (`scripts/verify.mjs`) — lint → typecheck → unit → build → E2E по очереди; первый сбой останавливает прогон, в конце — сводка по шагам со временем. Код выхода 0 — всё зелёное, 1 — шаг упал. PR сливается **только** при полностью зелёном `verify` на актуальной ветке; результат прогона — в описании PR.
+- **`npm run verify -- --quick`** — lint → typecheck → unit.
+- **Хук pre-push** (`.githooks/pre-push`) запускает `verify -- --quick` перед каждым `git push`; при сбое push отменяется. Подключается сам при `npm install`/`npm ci` (скрипт `prepare` → `scripts/install-hooks.mjs` → `git config core.hooksPath .githooks`); вручную — `npm run prepare`. Обходить хук (`--no-verify`) нельзя.
+- Защита `main` с обязательным CI не включается (см. «Защита main»).
+
+### CI (GitHub Actions, не запускается)
+`.github/workflows/ci.yml` оставлен на случай, если Actions снова станет доступен; повторяет шаги `npm run verify`. Запускался на каждый push в `main`, каждый PR и вручную; повторный push в ту же ветку отменяет прошлый прогон.
 - job **checks**: `npm ci` → `lint` → `typecheck` → `test` → `build` (Node 24).
 - job **e2e**: `npx playwright install --with-deps chromium` → `npm run test:e2e` (сборка `.next-e2e` и моки AniList, Shikimori, DeepL поднимаются из `playwright.config.ts`); при падении — артефакт `playwright-report` на 7 дней.
 - Секреты CI не нужны и не передаются. Проверка workflow — `actionlint` (бинарник с github.com/rhysd/actionlint, не в зависимостях проекта).
@@ -177,7 +187,7 @@ npm run build && npm run start      # http://localhost:3000
 - `main` — стабильная основная ветка (`origin/main`, первый коммит `dd5a3a7`). Напрямую в неё не коммитим и не пушим.
 - Для каждой задачи — отдельная ветка от актуальной `main`: `feature/<name>`, `fix/<name>`, `docs/<name>` (служебное — `chore/<name>`).
 - Изменения предлагаются через Pull Request в `main`.
-- Перед слиянием проверяются изменения (diff PR) и результаты lint + typecheck + test + build + e2e — их показывает CI (`.github/workflows/ci.yml`) в PR.
+- Перед слиянием проверяются изменения (diff PR) и результаты lint + typecheck + test + build + e2e — локальный `npm run verify` (CI на GitHub не запускается, см. «Проверки перед слиянием»).
 - Conventional Commits в сообщениях коммитов (`feat:`, `fix:`, `docs:`, `chore:` …).
 - Коммит, push и создание PR — после разрешения пользователя; слияние PR — только после отдельного разрешения пользователя (см. CLAUDE.md → «Автономная разработка»).
 

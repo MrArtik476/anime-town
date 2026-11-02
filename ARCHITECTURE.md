@@ -13,7 +13,8 @@ Browser ──► Next.js 16 (App Router) — локально `next dev` / `nex
                     ├─ HLS.js плеер + субтитры (WebVTT)
                     └─ Motion, shadcn/ui
 
-GitHub Actions ──► ci.yml             — lint, typecheck, unit, build; E2E на моках (каждый push в main и PR)
+Локально ────────► npm run verify     — lint, typecheck, unit, build, E2E на моках (перед слиянием; pre-push — quick)
+GitHub Actions ──► ci.yml             — те же шаги; не запускается (Actions недоступен)
                └─► translate-cron.yml — раз в сутки `npm run translate` → DeepL → Supabase (без сервера приложения)
 ```
 
@@ -66,9 +67,12 @@ src/
                            app/auth/callback (код из письма), app/auth/update-password
   types/                   anime.ts (доменные типы), database.ts
 scripts/
+  verify.mjs               `npm run verify [-- --quick]` — проверки перед слиянием и в pre-push
+  install-hooks.mjs        `prepare`: git config core.hooksPath .githooks
   translate-backfill.ts    `npm run translate` — фоновый перевод без сервера (GitHub Actions, локально)
+.githooks/pre-push        npm run verify -- --quick
 .github/workflows/
-  ci.yml                   lint, typecheck, unit, build; E2E на моках — отдельная job
+  ci.yml                   lint, typecheck, unit, build; E2E на моках — не запускается (Actions недоступен)
   translate-cron.yml       раз в сутки + workflow_dispatch → npm run translate
 tests/
   unit/                    Vitest: клиент, маппинг, форматирование, параметры, debounce, компоненты
