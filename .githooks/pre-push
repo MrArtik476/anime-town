@@ -1,0 +1,5 @@
+#!/bin/sh
+# Перед push: lint + typecheck + unit (GitHub Actions недоступен, см. DEVELOPMENT.md «Проверки перед слиянием»).
+# Полный прогон с build и E2E перед слиянием — `npm run verify`.
+# Подключается автоматически при `npm install` / `npm ci` (скрипт prepare → scripts/install-hooks.mjs).
+exec npm run verify -- --quick

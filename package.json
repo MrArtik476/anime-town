@@ -11,12 +11,14 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
+    "verify": "node scripts/verify.mjs",
     "translate": "tsx scripts/translate-backfill.ts",
     "perf": "node scripts/perf-measure.mjs",
     "rls:check": "node scripts/rls-check.mjs",
     "seed:test-episodes": "node scripts/seed-test-episodes.mjs",
     "build:test-hls": "node scripts/build-test-hls.mjs",
-    "db:types": "supabase gen types typescript --project-id bhzshfkhpumyojxuygsc --schema public > src/types/database.ts"
+    "db:types": "supabase gen types typescript --project-id bhzshfkhpumyojxuygsc --schema public > src/types/database.ts",
+    "prepare": "node scripts/install-hooks.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.9.0",
