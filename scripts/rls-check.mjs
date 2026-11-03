@@ -212,6 +212,10 @@ try {
   const visibleEp = eps.find((episode) => episode.number === 1);
   const b3 = await insertComment(B.client, { episode_id: visibleEp.id });
   check("B пишет к видимой серии", !b3.error, code(b3));
+  const crossToEpisode = await insertComment(A.client, { parent_id: b1.data.id, episode_id: visibleEp.id });
+  check("ответ в чужую ветку (корень тайтла, ответ к серии) — PT422", crossToEpisode.error?.code === "PT422" && crossToEpisode.status === 422, code(crossToEpisode));
+  const crossToTitle = await insertComment(A.client, { parent_id: b3.data.id });
+  check("ответ в чужую ветку (корень серии, ответ к тайтлу) — PT422", crossToTitle.error?.code === "PT422" && crossToTitle.status === 422, code(crossToTitle));
   const otherAnime = await insertComment(B.client, { anilist_id: 1, episode_id: visibleEp.id });
   check("серия другого тайтла отклоняется", !!otherAnime.error, code(otherAnime));
   const hiddenEp = await insertComment(B.client, { episode_id: hidden.id });
@@ -333,7 +337,7 @@ try {
   const bannedWrite = await insertComment(E.client, {});
   check("забаненный не пишет — PT403 / HTTP 403", bannedWrite.error?.code === "PT403" && bannedWrite.status === 403, code(bannedWrite));
   const bannedReport = await report(E.client, b3.data.id);
-  check("забаненный не жалуется", !!bannedReport.error, code(bannedReport));
+  check("забаненный не жалуется — PT403 / HTTP 403", bannedReport.error?.code === "PT403" && bannedReport.status === 403, code(bannedReport));
   const unban = await act(M.client, { action: "unban", target_user_id: E.id });
   const afterUnban = await insertComment(E.client, {});
   check("после unban пишет снова", !unban.error && !afterUnban.error, `${code(unban)} / ${code(afterUnban)}`);
@@ -344,6 +348,15 @@ try {
   const journalDelete = await M.client.from("moderation_actions").delete().eq("id", ban.data.id).select("id");
   check("M не удаляет журнал", !!journalDelete.error || journalDelete.data?.length === 0, code(journalDelete));
   check("A не читает журнал", (await A.client.from("moderation_actions").select("id")).data?.length === 0);
+
+  // Удаление аккаунта: ответ уходит каскадом, reply_count корня уменьшается.
+  const X = await makeUser("x");
+  const xReply = await insertComment(X.client, { parent_id: b3.data.id, episode_id: visibleEp.id });
+  const b3Before = (await admin.from("comments").select("reply_count").eq("id", b3.data.id).single()).data?.reply_count;
+  const { error: xDeleteError } = await admin.auth.admin.deleteUser(X.id);
+  if (!xDeleteError) created.splice(created.indexOf(X.id), 1);
+  const b3After = (await admin.from("comments").select("reply_count").eq("id", b3.data.id).single()).data?.reply_count;
+  check("удаление аккаунта уменьшает reply_count корня", !xReply.error && b3Before === 1 && b3After === 0, `${b3Before} → ${b3After}`);
 
   // Флуд-лимит: 5 в минуту.
   const C = await makeUser("c");
