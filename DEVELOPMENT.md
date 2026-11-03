@@ -79,7 +79,7 @@ npm i -D @playwright/test
 `translate` — фоновый машинный перевод без сервера (см. «Машинный перевод: настройка DeepL»).
 `typecheck` сначала генерирует типы маршрутов (`LayoutProps`, `PageProps` и т. п. в `.next/types`), иначе `tsc` без предварительного `build` падает с `Cannot find name 'LayoutProps'`.
 
-`db:types` — `npx supabase gen types typescript --project-id bhzshfkhpumyojxuygsc --schema public > src/types/database.ts`: CLI ставить не нужно, `supabase link` не нужен. Нужен личный токен Supabase в переменной окружения `SUPABASE_ACCESS_TOKEN` (Dashboard → Account → Access Tokens), заданной в системе или в терминале — npm-скрипты не читают `.env.local`. Без токена команда падает, а перенаправление `>` уже обнулило файл: вернуть его — `git checkout src/types/database.ts`. Пока токена нет, типы генерируются через Supabase MCP `generate_typescript_types` и вручную переносятся в `src/types/database.ts`.
+`db:types` — `scripts/gen-types.mjs`: вызывает `npx supabase gen types typescript --project-id bhzshfkhpumyojxuygsc --schema public` (CLI ставить и `supabase link` делать не нужно) и записывает `src/types/database.ts` только при коде выхода 0 и непустом выводе — при любой ошибке файл не трогается. Нужен личный токен Supabase в переменной окружения `SUPABASE_ACCESS_TOKEN` (Dashboard → Account → Access Tokens), заданной в системе или в терминале — npm-скрипты не читают `.env.local`; без него скрипт сразу выходит с кодом 2. Пока токена нет, типы генерируются через Supabase MCP `generate_typescript_types` и вручную переносятся в `src/types/database.ts`.
 
 ## Тестирование
 | Уровень | Команда | Что проверяет |
