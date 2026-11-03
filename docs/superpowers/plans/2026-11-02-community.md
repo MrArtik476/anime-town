@@ -275,6 +275,18 @@ git commit -m "feat(db): comments, reports, bans, moderation actions"
 - [ ] **Step 2:** Реализация. `/moderation`: `getCurrentProfile()` → не модератор → `notFound()`, `robots: { index: false }`.
 - [ ] **Step 3:** E2E — PASS, `--repeat-each=10` — без падений. `npm run verify` — 6/6. Obsidian PR, `trail check`. Затем коммит, PR, слияние.
 
+### Task 3.3: Хвосты ревью 5a-1
+
+**Files:**
+- Modify: `scripts/rls-check.mjs`, `DEVELOPMENT.md`
+
+- [ ] **Step 1: Журнал в `rls:check`.**
+  - `journal(action, id) === 1` после каждого из `restore`, `dismiss_reports`, `ban`, `unban`;
+  - после `dismissNone` число строк журнала не изменилось;
+  - отказ не-модератору — именно `42501`.
+- [ ] **Step 2: Оставшиеся данные.** Ненулевой остаток временных профилей, файлов, серий или комментариев даёт строку `⚠️`, и прогон падает.
+- [ ] **Step 3: `DEVELOPMENT.md`.** DELETE комментария мягкий для любого вызова первого уровня, включая service role и SQL Editor. Настоящее удаление — только каскадом (серия, профиль) или в сеансе обслуживания с `alter table public.comments disable trigger comments_before_delete`.
+
 ---
 
 ## PR 5b-1 · `feature/notifications-schema` — уведомления в базе
