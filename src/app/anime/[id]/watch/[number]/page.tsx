@@ -8,6 +8,7 @@ import { SiteFooter } from "@/components/layout/site-footer";
 import { SiteHeader } from "@/components/layout/site-header";
 import { buttonVariants } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { CommentsSection, CommentsSkeleton } from "@/features/comments/components/comments-section";
 import { parseEpisodeNumber } from "@/features/episodes/ids";
 import { formatDuration, getEpisode, getEpisodes } from "@/features/episodes/queries";
 import { WatchPlayer } from "@/features/progress/components/watch-player";
@@ -121,6 +122,12 @@ async function WatchContent({ params }: Pick<WatchPageProps, "params">) {
               </Link>
             )}
           </nav>
+
+          <div className="mt-10">
+            <Suspense fallback={<CommentsSkeleton />}>
+              <CommentsSection target={{ animeId: id, episodeNumber: episode.number }} />
+            </Suspense>
+          </div>
         </div>
 
         <aside aria-labelledby="watch-episodes-title">

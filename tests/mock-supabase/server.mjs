@@ -117,16 +117,92 @@ async function readJson(req) {
   }
 }
 
-/** Фильтры PostgREST вида column=eq.value / ilike.value (ilike без шаблонов — экранированное равенство). */
+/** Разбивает "a,b(c,d),\"e,f\"" по запятым верхнего уровня (скобки и кавычки не режутся). */
+function splitTopLevel(text) {
+  const parts = [];
+  let depth = 0;
+  let quoted = false;
+  let current = "";
+  for (const char of text) {
+    if (char === '"') quoted = !quoted;
+    else if (!quoted && char === "(") depth += 1;
+    else if (!quoted && char === ")") depth -= 1;
+    if (!quoted && depth === 0 && char === ",") {
+      parts.push(current);
+      current = "";
+    } else current += char;
+  }
+  if (current) parts.push(current);
+  return parts;
+}
+
+const unquote = (value) => (value.startsWith('"') && value.endsWith('"') ? value.slice(1, -1) : value);
+const comparable = (a, b) => (Number.isNaN(Date.parse(a)) || Number.isNaN(Date.parse(b)) || /^\d+$/.test(a) ? [Number(a), Number(b)] : [Date.parse(a), Date.parse(b)]);
+
+/** Условие PostgREST "op.value" для одной колонки: eq, neq, lt, gt, is, in, ilike (без шаблонов). */
+function condition(row, column, filter) {
+  const dot = filter.indexOf(".");
+  const op = filter.slice(0, dot);
+  const value = unquote(filter.slice(dot + 1));
+  const cell = row[column];
+  switch (op) {
+    case "eq":
+      return String(cell) === value;
+    case "neq":
+      return String(cell) !== value;
+    case "lt":
+    case "gt": {
+      if (cell == null) return false;
+      const [a, b] = comparable(String(cell), value);
+      return op === "lt" ? a < b : a > b;
+    }
+    case "is":
+      return value === "null" ? cell == null : String(cell) === value;
+    case "in":
+      return splitTopLevel(value.replace(/^\(|\)$/g, "")).map(unquote).includes(String(cell));
+    case "ilike":
+      return String(cell).toLowerCase() === value.replace(/\\(.)/g, "$1").toLowerCase();
+    default:
+      return true;
+  }
+}
+
+/** Логическое выражение or(...)/and(...) из параметра or=(…): элементы — "column.op.value" или вложенные группы. */
+function logic(row, kind, inner) {
+  const results = splitTopLevel(inner).map((part) => {
+    const group = part.match(/^(or|and)\((.*)\)$/);
+    if (group) return logic(row, group[1], group[2]);
+    const dot = part.indexOf(".");
+    return condition(row, part.slice(0, dot), part.slice(dot + 1));
+  });
+  return kind === "or" ? results.some(Boolean) : results.every(Boolean);
+}
+
+/** Фильтры запроса PostgREST (column=op.value, or=(…), and=(…)). */
 function matches(row, params) {
   for (const [column, filter] of params) {
-    if (["select", "limit", "order", "offset", "on_conflict"].includes(column)) continue;
-    const [op, ...rest] = filter.split(".");
-    const value = rest.join(".");
-    if (op === "eq" && String(row[column]) !== value) return false;
-    if (op === "ilike" && String(row[column]).toLowerCase() !== value.replace(/\\(.)/g, "$1").toLowerCase()) return false;
+    if (["select", "limit", "order", "offset", "on_conflict", "columns"].includes(column)) continue;
+    if (column === "or" || column === "and") {
+      if (!logic(row, column, filter.replace(/^\(|\)$/g, ""))) return false;
+    } else if (!condition(row, column, filter)) return false;
   }
   return true;
+}
+
+/** order=a.desc,b.asc */
+function sortRows(rows, order) {
+  if (!order) return rows;
+  const keys = order.split(",").map((part) => {
+    const [column, direction] = part.split(".");
+    return { column, sign: direction === "desc" ? -1 : 1 };
+  });
+  return [...rows].sort((x, y) => {
+    for (const { column, sign } of keys) {
+      const [a, b] = comparable(String(x[column]), String(y[column]));
+      if (a !== b) return (a < b ? -1 : 1) * sign;
+    }
+    return 0;
+  });
 }
 
 function pick(row, select) {
@@ -376,7 +452,172 @@ async function handleProgress(req, res, url) {
   return send(res, 405, { message: "method not allowed in mock" });
 }
 
+/**
+ * Комментарии (миграции 20261103102438, 20261103105041 — ADR-025), упрощённо: клиенту — insert, update (body),
+ * delete (мягкий); ветка в один уровень, флуд 5 в минуту, бан, жалобы. Коды — как у PostgREST (PT429 → 429 …).
+ * Настоящую логику базы проверяет npm run rls:check, мок повторяет контракт.
+ */
+const comments = new Map();
+const commentReports = [];
+const userBans = [];
+let commentSeq = 0;
+let lastCommentTime = 0;
+const COMMENT_INSERT = ["anilist_id", "episode_id", "parent_id", "reply_to_user_id", "body", "is_spoiler", "anime_title", "anime_cover_url"];
+const REPORT_REASONS = ["spam", "offensive", "spoiler", "other"];
+
+const pgError = (res, httpStatus, code, message, details = null) => send(res, httpStatus, { code, message, details, hint: null });
+const isModerator = (user) => ["moderator", "admin"].includes(profiles.get(user?.id)?.role);
+const activeBan = (userId) =>
+  userBans.find((ban) => ban.user_id === userId && !ban.revoked_at && (!ban.expires_at || Date.parse(ban.expires_at) > Date.now()));
+const visibleTo = (user) => (row) => row.status !== "hidden" || isModerator(user);
+/** Строго растущее время создания — keyset по created_at в тестах не зависит от совпадений. */
+function nextCommentTime() {
+  lastCommentTime = Math.max(Date.now(), lastCommentTime + 1);
+  return new Date(lastCommentTime).toISOString();
+}
+function changeReplyCount(rootId, delta) {
+  const root = comments.get(rootId);
+  if (root) root.reply_count = Math.max(root.reply_count + delta, 0);
+}
+
+function respondRows(req, res, url, status, rows) {
+  const prefer = req.headers.prefer ?? "";
+  if (req.method !== "GET" && !prefer.includes("return=representation")) return send(res, status === 200 ? 204 : status);
+  return sendRows(req, res, status, rows.map((row) => pick(row, url.searchParams.get("select"))));
+}
+
+async function handleComments(req, res, url) {
+  const user = userByToken(req);
+  const params = [...url.searchParams.entries()];
+
+  if (req.method === "GET") {
+    const rows = sortRows([...comments.values()].filter(visibleTo(user)).filter((row) => matches(row, params)), url.searchParams.get("order"));
+    return sendRows(req, res, 200, rows.slice(0, Number(url.searchParams.get("limit") ?? Infinity)).map((row) => pick(row, url.searchParams.get("select"))));
+  }
+  if (!user) return pgError(res, 401, "42501", "permission denied for table comments");
+
+  if (req.method === "POST") {
+    const item = await readJson(req);
+    if (Object.keys(item).some((key) => !COMMENT_INSERT.includes(key))) return pgError(res, 403, "42501", "permission denied for table comments");
+    if (item.parent_id != null) {
+      const parent = comments.get(item.parent_id);
+      if (!parent || parent.parent_id !== null || parent.status !== "visible" || parent.anilist_id !== item.anilist_id || (parent.episode_id ?? null) !== (item.episode_id ?? null)) {
+        return pgError(res, 422, "PT422", "invalid_thread");
+      }
+      const inThread = [...comments.values()].some((row) => row.parent_id === parent.id && row.user_id === item.reply_to_user_id);
+      if (item.reply_to_user_id && item.reply_to_user_id !== parent.user_id && !inThread) return pgError(res, 422, "PT422", "invalid_reply_to");
+    } else if (item.reply_to_user_id) return pgError(res, 422, "PT422", "invalid_reply_to");
+    const ban = activeBan(user.id);
+    if (ban) return pgError(res, 403, "PT403", "banned", ban.expires_at ?? "forever");
+    const minuteAgo = Date.now() - 60_000;
+    if ([...comments.values()].filter((row) => row.user_id === user.id && Date.parse(row.created_at) > minuteAgo).length >= 5) {
+      return pgError(res, 429, "PT429", "rate_limited");
+    }
+    if (item.episode_id != null) {
+      const episode = EPISODES.find((e) => e.id === item.episode_id && e.license_status !== "none");
+      if (!episode || episode.anilist_id !== item.anilist_id) return pgError(res, 403, "42501", "new row violates row-level security policy");
+    }
+    const body = typeof item.body === "string" ? item.body.trim() : "";
+    if (body.length < 1 || body.length > 2000) return pgError(res, 400, "23514", "comments_body_length");
+    const row = {
+      id: (commentSeq += 1),
+      user_id: user.id,
+      anilist_id: item.anilist_id,
+      episode_id: item.episode_id ?? null,
+      parent_id: item.parent_id ?? null,
+      reply_to_user_id: item.reply_to_user_id ?? null,
+      body: item.body,
+      is_spoiler: Boolean(item.is_spoiler),
+      status: "visible",
+      reply_count: 0,
+      anime_title: item.anime_title ?? null,
+      anime_cover_url: item.anime_cover_url ?? null,
+      created_at: nextCommentTime(),
+      edited_at: null,
+    };
+    comments.set(row.id, row);
+    if (row.parent_id) changeReplyCount(row.parent_id, 1);
+    return respondRows(req, res, url, 201, [row]);
+  }
+
+  // RLS update/delete: только свой видимый комментарий.
+  const own = [...comments.values()].filter((row) => row.user_id === user.id && row.status === "visible" && matches(row, params));
+  if (req.method === "PATCH") {
+    const patch = await readJson(req);
+    if (Object.keys(patch).some((key) => key !== "body")) return pgError(res, 403, "42501", "permission denied for table comments");
+    const body = typeof patch.body === "string" ? patch.body.trim() : "";
+    if (body.length < 1 || body.length > 2000) return pgError(res, 400, "23514", "comments_body_length");
+    for (const row of own) Object.assign(row, { body: patch.body, edited_at: new Date().toISOString() });
+    return respondRows(req, res, url, 200, own);
+  }
+  if (req.method === "DELETE") {
+    for (const row of own) {
+      Object.assign(row, { status: "deleted", body: null, is_spoiler: false });
+      if (row.parent_id) changeReplyCount(row.parent_id, -1);
+    }
+    return respondRows(req, res, url, 200, []);
+  }
+  return send(res, 405, { message: "method not allowed in mock" });
+}
+
+async function handleReplyPreviews(req, res) {
+  const user = userByToken(req);
+  const { root_ids: rootIds = [], per_root: perRoot } = await readJson(req);
+  if (rootIds.length > 20) return pgError(res, 422, "PT422", "too_many_roots");
+  const limit = Math.min(Math.max(perRoot ?? 3, 1), 20);
+  const rows = rootIds.flatMap((rootId) =>
+    sortRows(
+      [...comments.values()].filter((row) => row.parent_id === rootId && row.status !== "deleted").filter(visibleTo(user)),
+      "created_at.asc,id.asc",
+    ).slice(0, limit),
+  );
+  return send(res, 200, rows);
+}
+
+async function handleReports(req, res, url) {
+  const user = userByToken(req);
+  if (!user) return pgError(res, 401, "42501", "permission denied for table comment_reports");
+  if (req.method === "GET") {
+    const rows = commentReports.filter((row) => (row.reporter_id === user.id || isModerator(user)) && matches(row, [...url.searchParams.entries()]));
+    return sendRows(req, res, 200, rows.map((row) => pick(row, url.searchParams.get("select"))));
+  }
+  if (req.method !== "POST") return pgError(res, 403, "42501", "permission denied for table comment_reports");
+  const item = await readJson(req);
+  const ban = activeBan(user.id);
+  if (ban) return pgError(res, 403, "PT403", "banned", ban.expires_at ?? "forever");
+  const target = comments.get(item.comment_id);
+  if (!target || target.status !== "visible" || target.user_id === user.id) return pgError(res, 422, "PT422", "invalid_report");
+  if (!REPORT_REASONS.includes(item.reason)) return pgError(res, 400, "23514", "comment_reports_reason_check");
+  if (commentReports.some((row) => row.comment_id === item.comment_id && row.reporter_id === user.id)) {
+    return pgError(res, 409, "23505", "duplicate key value violates unique constraint");
+  }
+  const row = {
+    id: commentReports.length + 1,
+    comment_id: item.comment_id,
+    reporter_id: user.id,
+    reason: item.reason,
+    details: item.details ?? null,
+    status: "open",
+    resolved_by: null,
+    resolved_at: null,
+    created_at: new Date().toISOString(),
+  };
+  commentReports.push(row);
+  return respondRows(req, res, url, 201, [row]);
+}
+
+function handleBans(req, res, url) {
+  const user = userByToken(req);
+  if (!user || req.method !== "GET") return pgError(res, 401, "42501", "permission denied for table user_bans");
+  const rows = userBans.filter((row) => (row.user_id === user.id || isModerator(user)) && matches(row, [...url.searchParams.entries()]));
+  return sendRows(req, res, 200, rows.map((row) => pick(row, url.searchParams.get("select"))));
+}
+
 async function handleRest(req, res, path, url) {
+  if (path === "/rest/v1/comments") return handleComments(req, res, url);
+  if (path === "/rest/v1/rpc/comment_reply_previews") return handleReplyPreviews(req, res);
+  if (path === "/rest/v1/comment_reports") return handleReports(req, res, url);
+  if (path === "/rest/v1/user_bans") return handleBans(req, res, url);
   if (path === "/rest/v1/watch_progress") return handleProgress(req, res, url);
   if (path === "/rest/v1/episodes") return handleReadOnly(req, res, url, EPISODES.filter((e) => e.license_status !== "none"));
   if (path === "/rest/v1/subtitles") return handleReadOnly(req, res, url, SUBTITLES.filter((s) => visibleEpisodeIds.has(s.episode_id)));

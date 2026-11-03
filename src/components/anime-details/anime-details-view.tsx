@@ -2,6 +2,7 @@ import { Suspense } from "react";
 
 import { Skeleton } from "@/components/ui/skeleton";
 import { EpisodesList } from "@/features/episodes/components/episodes-list";
+import { CommentsSection, CommentsSkeleton } from "@/features/comments/components/comments-section";
 import { ListPanel, ListPanelSkeleton } from "@/features/list/components/list-panel";
 import { RatingSummaryCard } from "@/features/list/components/rating-summary";
 import type { AnimeDetails } from "@/types/anime";
@@ -45,6 +46,11 @@ export function AnimeDetailsView({ anime }: { anime: AnimeDetails }) {
           )}
 
           <DetailsRelations relations={anime.relations} />
+
+          {/* Комментарии читают сессию — своя граница, данные тайтла остаются в кэше. */}
+          <Suspense fallback={<CommentsSkeleton />}>
+            <CommentsSection target={{ animeId: anime.id }} />
+          </Suspense>
         </div>
 
         <aside className="space-y-6 lg:pt-1">
