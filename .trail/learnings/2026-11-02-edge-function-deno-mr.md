@@ -27,7 +27,10 @@ touches:
 
 ## Tried and ruled out
 - Import map на ../../../src в deno.json: неясно, соберёт ли Supabase файлы вне supabase/functions, а CLI без логина не проверить.
-- pg_cron → Next.js /api/cron/translate: вызывать некого, хостинга нет.
+- Ночное расписание, где pg_cron по HTTP дёргает приложение (а не Edge Function): вызывать некого, хостинга нет до этапа 8.
+
+## Not a conflict
+- Маршрут /api/cron/translate остаётся: ручной запуск перевода и его E2E-тест (защита секретом, перевод через мок DeepL). Упоминать его в DEVELOPMENT.md, тестах и документации — нормально; нарушение только в том, чтобы снова поставить его в расписание pg_cron вместо Edge Function.
 
 ## Watch out
 - После правок src/lib/localization (и всего, что он импортирует) — `npm run functions:build`, закоммитить index.js и передеплоить функцию; иначе `functions:check` в verify упадёт, а в Supabase останется старый код.
