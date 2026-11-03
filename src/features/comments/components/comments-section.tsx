@@ -32,15 +32,12 @@ export async function CommentsSection({ target }: { target: CommentTarget }) {
       </h2>
       <div className="mt-4 rounded-xl border border-border/70 bg-card/60 p-4">
         {!viewer.userId ? (
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <p className="text-sm text-muted-foreground">Войдите, чтобы написать</p>
-            <Link
-              href={`/login?next=${encodeURIComponent(`${targetPath(target)}#comments`)}`}
-              className={cn(buttonVariants({ variant: "outline" }), "h-9 px-4")}
-            >
-              Войти
-            </Link>
-          </div>
+          <Link
+            href={`/login?next=${encodeURIComponent(`${targetPath(target)}#comments`)}`}
+            className={cn(buttonVariants({ variant: "outline" }), "h-10 w-full")}
+          >
+            Войдите, чтобы написать
+          </Link>
         ) : viewer.bannedUntil ? (
           <p role="status" className="text-sm text-destructive">
             {banMessage(viewer.bannedUntil)}

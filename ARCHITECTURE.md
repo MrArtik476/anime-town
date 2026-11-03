@@ -63,6 +63,10 @@ src/
   features/progress/       прогресс: model.ts (проверка, resumePosition, selectContinueItems), queries.ts,
                            components/ (WatchPlayer — плеер + сохранение, ContinueWatching); app/api/progress — POST
   features/player/         VideoPlayer (hls.js по требованию, качество, субтитры, клавиши, автопереход), shortcuts.ts
+  features/comments/        комментарии: model.ts (проверка ввода, курсор keyset, сборка веток), errors.ts (PT-коды → русский),
+                           queries.ts (getViewer, getCommentsPage, getReplies), actions.ts (create/edit/delete/report),
+                           components/ (CommentsSection — сервер, в своём Suspense; CommentsList, CommentItem, CommentForm, SpoilerText);
+                           app/api/comments — GET следующих страниц и ответов
   app/anime/[id]/watch/[number]  страница серии: плеер, атрибуция лицензии, соседние серии, список серий
   features/auth/avatar.ts  проверка аватара (тип по первым байтам, до 1 МБ); actions uploadAvatar / removeAvatar
   app/(auth)/              /login, /register, /forgot-password;  app/(account)/account — профиль и список;
