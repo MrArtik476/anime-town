@@ -105,6 +105,51 @@ export function buildReplies(replies: CommentRow[], profileRows: ProfileRow[]): 
   return replies.filter((reply) => reply.status !== "deleted").map((reply) => toView(reply, profiles));
 }
 
+/**
+ * Куда ложится ответ: ветки в один уровень, поэтому ответ на ответ уходит в корень ветки,
+ * а «@ник» указывает автора ответа. Ответ прямо на корень — без «@».
+ */
+export function replyPlacement(target: Pick<CommentRow, "id" | "parent_id" | "user_id">): {
+  parent_id: number;
+  reply_to_user_id: string | null;
+} {
+  return target.parent_id === null
+    ? { parent_id: target.id, reply_to_user_id: null }
+    : { parent_id: target.parent_id, reply_to_user_id: target.user_id };
+}
+
+export const REPORT_REASONS = ["spam", "offensive", "spoiler", "other"] as const;
+export type ReportReason = (typeof REPORT_REASONS)[number];
+export const REPORT_REASON_LABELS: Record<ReportReason, string> = {
+  spam: "Спам или реклама",
+  offensive: "Оскорбления",
+  spoiler: "Спойлер без пометки",
+  other: "Другое",
+};
+
+/** Жалоба от клиента. null — неверные данные. */
+export function parseReportInput(raw: unknown): { reason: ReportReason; details: string | null } | null {
+  if (typeof raw !== "object" || raw === null) return null;
+  const { reason, details } = raw as Record<string, unknown>;
+  if (!REPORT_REASONS.some((known) => known === reason)) return null;
+  if (details !== undefined && details !== null && typeof details !== "string") return null;
+  const text = typeof details === "string" ? details.trim() : "";
+  if (text.length > 500) return null;
+  return { reason: reason as ReportReason, details: text || null };
+}
+
+/** Обсуждение от клиента. null — неверные данные. */
+export function parseCommentTarget(raw: unknown): CommentTarget | null {
+  if (typeof raw !== "object" || raw === null) return null;
+  const { animeId, episodeNumber } = raw as Record<string, unknown>;
+  if (typeof animeId !== "number" || !Number.isSafeInteger(animeId) || animeId <= 0) return null;
+  if (episodeNumber === undefined) return { animeId };
+  if (typeof episodeNumber !== "number" || !Number.isInteger(episodeNumber) || episodeNumber < 1 || episodeNumber > 10_000) {
+    return null;
+  }
+  return { animeId, episodeNumber };
+}
+
 /** id всех авторов и адресатов «@ник» — для одного запроса profiles. */
 export function profileIds(rows: CommentRow[]): string[] {
   const ids = new Set<string>();
