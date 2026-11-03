@@ -35,9 +35,9 @@ begin
 end;
 $$;
 
-drop trigger comments_after_change on public.comments;
-create trigger comments_after_change
-  after insert or update of status or delete on public.comments
+-- Отдельный триггер на удаление (та же функция) — без drop существующего comments_after_change.
+create trigger comments_after_delete
+  after delete on public.comments
   for each row execute function private.comments_after_change();
 
 create or replace function private.comment_reports_before_insert()
