@@ -115,6 +115,144 @@ export type Database = {
         }
         Relationships: []
       }
+      comment_reports: {
+        Row: {
+          comment_id: number
+          created_at: string
+          details: string | null
+          id: number
+          reason: string
+          reporter_id: string
+          resolved_at: string | null
+          resolved_by: string | null
+          status: string
+        }
+        Insert: {
+          comment_id: number
+          created_at?: string
+          details?: string | null
+          id?: never
+          reason: string
+          reporter_id?: string
+          resolved_at?: string | null
+          resolved_by?: string | null
+          status?: string
+        }
+        Update: {
+          comment_id?: number
+          created_at?: string
+          details?: string | null
+          id?: never
+          reason?: string
+          reporter_id?: string
+          resolved_at?: string | null
+          resolved_by?: string | null
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "comment_reports_comment_id_fkey"
+            columns: ["comment_id"]
+            isOneToOne: false
+            referencedRelation: "comments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "comment_reports_reporter_id_fkey"
+            columns: ["reporter_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "comment_reports_resolved_by_fkey"
+            columns: ["resolved_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      comments: {
+        Row: {
+          anilist_id: number
+          anime_cover_url: string | null
+          anime_title: string | null
+          body: string | null
+          created_at: string
+          edited_at: string | null
+          episode_id: number | null
+          id: number
+          is_spoiler: boolean
+          parent_id: number | null
+          reply_count: number
+          reply_to_user_id: string | null
+          status: string
+          user_id: string
+        }
+        Insert: {
+          anilist_id: number
+          anime_cover_url?: string | null
+          anime_title?: string | null
+          body?: string | null
+          created_at?: string
+          edited_at?: string | null
+          episode_id?: number | null
+          id?: never
+          is_spoiler?: boolean
+          parent_id?: number | null
+          reply_count?: number
+          reply_to_user_id?: string | null
+          status?: string
+          user_id?: string
+        }
+        Update: {
+          anilist_id?: number
+          anime_cover_url?: string | null
+          anime_title?: string | null
+          body?: string | null
+          created_at?: string
+          edited_at?: string | null
+          episode_id?: number | null
+          id?: never
+          is_spoiler?: boolean
+          parent_id?: number | null
+          reply_count?: number
+          reply_to_user_id?: string | null
+          status?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "comments_episode_id_fkey"
+            columns: ["episode_id"]
+            isOneToOne: false
+            referencedRelation: "episodes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "comments_parent_id_fkey"
+            columns: ["parent_id"]
+            isOneToOne: false
+            referencedRelation: "comments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "comments_reply_to_user_id_fkey"
+            columns: ["reply_to_user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "comments_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       episodes: {
         Row: {
           anilist_id: number
@@ -156,6 +294,61 @@ export type Database = {
           updated_at?: string
         }
         Relationships: []
+      }
+      moderation_actions: {
+        Row: {
+          action: string
+          ban_duration: string | null
+          comment_id: number | null
+          created_at: string
+          id: number
+          moderator_id: string | null
+          reason: string | null
+          target_user_id: string | null
+        }
+        Insert: {
+          action: string
+          ban_duration?: string | null
+          comment_id?: number | null
+          created_at?: string
+          id?: never
+          moderator_id?: string | null
+          reason?: string | null
+          target_user_id?: string | null
+        }
+        Update: {
+          action?: string
+          ban_duration?: string | null
+          comment_id?: number | null
+          created_at?: string
+          id?: never
+          moderator_id?: string | null
+          reason?: string | null
+          target_user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "moderation_actions_comment_id_fkey"
+            columns: ["comment_id"]
+            isOneToOne: false
+            referencedRelation: "comments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "moderation_actions_moderator_id_fkey"
+            columns: ["moderator_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "moderation_actions_target_user_id_fkey"
+            columns: ["target_user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       profiles: {
         Row: {
@@ -279,6 +472,61 @@ export type Database = {
         }
         Relationships: []
       }
+      user_bans: {
+        Row: {
+          created_at: string
+          expires_at: string | null
+          id: number
+          moderator_id: string | null
+          reason: string | null
+          revoked_at: string | null
+          revoked_by: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          expires_at?: string | null
+          id?: never
+          moderator_id?: string | null
+          reason?: string | null
+          revoked_at?: string | null
+          revoked_by?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          expires_at?: string | null
+          id?: never
+          moderator_id?: string | null
+          reason?: string | null
+          revoked_at?: string | null
+          revoked_by?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "user_bans_moderator_id_fkey"
+            columns: ["moderator_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "user_bans_revoked_by_fkey"
+            columns: ["revoked_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "user_bans_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       watch_progress: {
         Row: {
           anilist_id: number
@@ -341,6 +589,31 @@ export type Database = {
       begin_translation_run: {
         Args: { p_stale_after_seconds?: number; p_trigger: string }
         Returns: number
+      }
+      comment_reply_previews: {
+        Args: { per_root?: number; root_ids: number[] }
+        Returns: {
+          anilist_id: number
+          anime_cover_url: string | null
+          anime_title: string | null
+          body: string | null
+          created_at: string
+          edited_at: string | null
+          episode_id: number | null
+          id: number
+          is_spoiler: boolean
+          parent_id: number | null
+          reply_count: number
+          reply_to_user_id: string | null
+          status: string
+          user_id: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "comments"
+          isOneToOne: false
+          isSetofReturn: true
+        }
       }
     }
     Enums: {

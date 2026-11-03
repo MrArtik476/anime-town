@@ -110,7 +110,19 @@ npm i -D @playwright/test
 - Адрес видео для плеера получается только в `resolvePlaybackSource()` — менять источник (этап 8) нужно там.
 
 ## Проверка доступа (RLS) на настоящем проекте
-`npm run rls:check` (`scripts/rls-check.mjs`): создаёт двух временных пользователей через admin API (нужен `SUPABASE_SERVICE_ROLE_KEY=sb_secret_…`), проверяет от их сессий и от гостя доступ к `profiles`, `anime_list`, `anime_rating_stats`, `anime_localizations`, `episodes`/`subtitles`, `watch_progress` и Storage `avatars` (47 проверок; временные серии на несуществующем тайтле тоже удаляются), затем удаляет их файлы и самих пользователей. Код выхода 1 — найдена дыра или сбой. Запускать после каждой миграции с RLS.
+`npm run rls:check` (`scripts/rls-check.mjs`): создаёт двух временных пользователей через admin API (нужен `SUPABASE_SERVICE_ROLE_KEY=sb_secret_…`), проверяет от их сессий и от гостя доступ к `profiles`, `anime_list`, `anime_rating_stats`, `anime_localizations`, `episodes`/`subtitles`, `watch_progress`, Storage `avatars` и комментариям: права на колонки `comments`, мягкое удаление, ветку ответов, флуд-лимит (5 подряд и 6 параллельных), баны, жалобы и действия модератора с журналом — для этого ещё два временных модератора и три пользователя (122 проверки; временные серии на несуществующем тайтле и строки журнала модерации тоже удаляются), затем удаляет их файлы и самих пользователей. Код выхода 1 — найдена дыра или сбой. Запускать после каждой миграции с RLS.
+
+## Модерация: роли и баны (до админки этапа 6)
+- **Назначить модератора** — SQL Editor в Supabase (роль меняет только сервер):
+  ```sql
+  update public.profiles set role = 'moderator' where lower(username) = lower('ник');
+  ```
+  Вернуть обычную роль — `role = 'user'`.
+- **Снять бан** — кнопка «Снять бан» в `/moderation` (действие `unban`, пишется в журнал; страница — с PR 5a-3). Запасной путь для владельца, без записи в журнал:
+  ```sql
+  update public.user_bans set revoked_at = now()
+  where user_id = (select id from public.profiles where lower(username) = lower('ник')) and revoked_at is null;
+  ```
 
 ## Аккаунты: настройка Supabase Auth (локально)
 1. Supabase Dashboard → Authentication → URL Configuration: **Site URL** `http://localhost:3000`, **Redirect URLs** — `http://localhost:3000/**`. Без этого ссылки из писем ведут не на `/auth/callback`.
