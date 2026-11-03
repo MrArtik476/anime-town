@@ -1,3 +1,4 @@
+import { ShieldCheck } from "lucide-react";
 import Link from "next/link";
 
 import { buttonVariants } from "@/components/ui/button";
@@ -24,11 +25,20 @@ export async function UserMenu() {
   }
 
   const name = current.profile?.username ?? "Профиль";
+  const role = current.profile?.role;
   return (
-    <Link href="/account" className={cn(itemClass, "bg-muted text-foreground hover:bg-muted/70")} title="Профиль">
-      <UserAvatar url={current.profile?.avatarUrl ?? null} name={name} size={24} />
-      <span className="sr-only sm:not-sr-only">{name}</span>
-    </Link>
+    <>
+      {(role === "moderator" || role === "admin") && (
+        <Link href="/moderation" className={cn(itemClass, "text-muted-foreground hover:bg-muted hover:text-foreground")}>
+          <ShieldCheck aria-hidden className="size-4" />
+          <span className="sr-only md:not-sr-only">Модерация</span>
+        </Link>
+      )}
+      <Link href="/account" className={cn(itemClass, "bg-muted text-foreground hover:bg-muted/70")} title="Профиль">
+        <UserAvatar url={current.profile?.avatarUrl ?? null} name={name} size={24} />
+        <span className="sr-only sm:not-sr-only">{name}</span>
+      </Link>
+    </>
   );
 }
 

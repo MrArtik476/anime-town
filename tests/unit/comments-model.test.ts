@@ -73,18 +73,26 @@ describe("курсор keyset", () => {
     expect(decodeCursor(Buffer.from("not-a-date|1").toString("base64url"))).toBeNull();
     expect(decodeCursor(Buffer.from("2026-11-03T10:00:00Z|-5").toString("base64url"))).toBeNull();
   });
+
+  it("дата — только ISO с часовым поясом, как отдаёт PostgREST", () => {
+    for (const date of ["1 Nov 2026", "2026-11-03", "2026-11-03T10:00:00", "2026-11-03 10:00:00+00"]) {
+      expect(decodeCursor(Buffer.from(`${date}|5`).toString("base64url"))).toBeNull();
+    }
+    expect(decodeCursor(encodeCursor({ createdAt: "2026-11-03T10:00:00Z", id: 5 }))).toEqual({ createdAt: "2026-11-03T10:00:00Z", id: 5 });
+  });
 });
 
 describe("buildThreads", () => {
-  it("удалённый корень без ответов отбрасывается, с ответами — остаётся без текста", () => {
+  it("удалённый корень с ответами — без текста; корни не фильтруются (удалённые без ответов отсекает запрос)", () => {
     const threads = buildThreads(
-      [row(1, { status: "deleted", body: null, reply_count: 0 }), row(2, { status: "deleted", body: null, reply_count: 2 })],
+      [row(1), row(2, { status: "deleted", body: null, reply_count: 2 })],
       [row(3, { parent_id: 2, user_id: "u2", reply_to_user_id: "u1" })],
       profiles,
     );
-    expect(threads.map((t) => t.id)).toEqual([2]);
-    expect(threads[0].body).toBeNull();
-    expect(threads[0].status).toBe("deleted");
+    expect(threads.map((t) => t.id)).toEqual([1, 2]);
+    expect(threads[1].body).toBeNull();
+    expect(threads[1].status).toBe("deleted");
+    expect(threads[1].replies).toHaveLength(1);
   });
 
   it("ответы привязаны к корню, автор и «@ник» из профилей", () => {

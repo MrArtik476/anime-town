@@ -249,13 +249,13 @@ git commit -m "feat(db): comments, reports, bans, moderation actions"
   - `getActiveBans(): Promise<{ userId: string; username: string; expiresAt: string | null; reason: string | null }[]>`;
   - `type ReportGroup = { comment: CommentView & { href: string }; counts: Record<"spam" | "offensive" | "spoiler" | "other", number>; details: string[]; firstReportedAt: string }`.
 
-- [ ] **Step 1: Тесты.**
+- [x] **Step 1: Тесты.**
   - `parseBanDuration("7d") === "7d"`, `parseBanDuration("2d") === null`;
   - без роли модератора `hideComment` → «Недостаточно прав» без обращения к базе;
   - `banUser` вставляет `{ action: "ban", target_user_id, ban_duration: "7d" }` без `expires_at`: срок считает база;
   - ошибка `PT422` → «Это действие недоступно»;
   - `ReportGroup.href` для серии — `/anime/1/watch/2#comment-5`.
-- [ ] **Step 2: Реализация.** Запуск — падает. Реализация. Запуск — PASS. Коммит.
+- [x] **Step 2: Реализация.** Запуск — падает. Реализация. Запуск — PASS. Коммит.
 
 ### Task 3.2: Меню модератора и страница `/moderation`
 
@@ -264,7 +264,7 @@ git commit -m "feat(db): comments, reports, bans, moderation actions"
 - Create: `src/features/moderation/components/ban-dialog.tsx`, `report-list.tsx`, `active-bans.tsx` (список и кнопка «Снять бан»), `src/app/moderation/page.tsx`
 - Modify: `tests/mock-supabase/server.mjs` (модератор `moderator@e2e.test`, видимость `hidden`, `POST /rest/v1/moderation_actions` с эффектами `hide` / `restore` / `dismiss_reports` / `ban` / `unban` и `PT422`), новый `tests/e2e/moderation.spec.ts`
 
-- [ ] **Step 1: E2E.**
+- [x] **Step 1: E2E.**
   - «модератор скрывает — гость не видит, жалоба уходит из /moderation»;
   - «вернуть скрытый»;
   - «бан на 7 дней — у забаненного форма заменена „Вы заблокированы до …“»;
@@ -272,24 +272,24 @@ git commit -m "feat(db): comments, reports, bans, moderation actions"
   - «отклонить жалобы»;
   - «обычный пользователь: /moderation — 404»;
   - «гость: /moderation — 404».
-- [ ] **Step 2:** Реализация. `/moderation`: `getCurrentProfile()` → не модератор → `notFound()`, `robots: { index: false }`.
-- [ ] **Step 3:** E2E — PASS, `--repeat-each=10` — без падений. `npm run verify` — 6/6. Obsidian PR, `trail check`. Затем коммит, PR, слияние.
+- [x] **Step 2:** Реализация. `/moderation`: `getCurrentProfile()` → не модератор → `notFound()`, `robots: { index: false }`.
+- [x] **Step 3:** E2E — PASS, `--repeat-each=10` — без падений. `npm run verify` — 6/6. Obsidian PR, `trail check`. Затем коммит, PR, слияние.
 
 ### Task 3.3: Хвосты ревью 5a-1
 
 **Files:**
 - Modify: `scripts/rls-check.mjs`, `DEVELOPMENT.md`
 
-- [ ] **Step 1: Журнал в `rls:check`.**
+- [x] **Step 1: Журнал в `rls:check`.**
   - `journal(action, id) === 1` после каждого из `restore`, `dismiss_reports`, `ban`, `unban`;
   - после `dismissNone` число строк журнала не изменилось;
   - отказ не-модератору — именно `42501`.
-- [ ] **Step 2: Оставшиеся данные.** Ненулевой остаток временных профилей, файлов, серий или комментариев даёт строку `⚠️`, и прогон падает.
-- [ ] **Step 2a: Хвосты ревью 5a-2.**
+- [x] **Step 2: Оставшиеся данные.** Ненулевой остаток временных профилей, файлов, серий или комментариев даёт строку `⚠️`, и прогон падает.
+- [x] **Step 2a: Хвосты ревью 5a-2.**
   - У модератора `reply_count` считает только видимые ответы, а превью и `getReplies` отдают и скрытые — кнопка «Показать ещё ответы» может пропасть. Решение: хранить `nextCursor` из `getReplies` и показывать кнопку, пока `replies.length < replyCount || isModerator` до первой догрузки, затем — по курсору. Тест: unit на `Thread` с ветками [скрытый, скрытый, видимый×3] у модератора.
   - Строгая проверка даты в курсоре (ISO-регулярка вместо `Date.parse`).
   - `deleteComment`: несуществующий или невидимый комментарий → «Это действие недоступно», а не успех.
-- [ ] **Step 3: `DEVELOPMENT.md`.** DELETE комментария мягкий для любого вызова первого уровня, включая service role и SQL Editor. Настоящее удаление — только каскадом (серия, профиль) или в сеансе обслуживания с `alter table public.comments disable trigger comments_before_delete`.
+- [x] **Step 3: `DEVELOPMENT.md`.** DELETE комментария мягкий для любого вызова первого уровня, включая service role и SQL Editor. Настоящее удаление — только каскадом (серия, профиль) или в сеансе обслуживания с `alter table public.comments disable trigger comments_before_delete`.
 
 ---
 

@@ -14,6 +14,14 @@ const actions = vi.hoisted(() => ({
   reportComment: vi.fn(),
 }));
 vi.mock("@/features/comments/actions", () => actions);
+const moderation = vi.hoisted(() => ({
+  hideComment: vi.fn(),
+  restoreComment: vi.fn(),
+  banUser: vi.fn(),
+  dismissReports: vi.fn(),
+  unbanUser: vi.fn(),
+}));
+vi.mock("@/features/moderation/actions", () => moderation);
 
 const author = { id: "me", username: "alice", displayName: null, avatarUrl: null };
 const view = (id: number, fields: Partial<CommentView> = {}): CommentView => ({
@@ -38,7 +46,7 @@ async function openMenu(item: string) {
 }
 
 beforeEach(() => {
-  for (const fn of Object.values(actions)) fn.mockReset();
+  for (const fn of [...Object.values(actions), ...Object.values(moderation)]) fn.mockReset();
 });
 
 describe("CommentItem — изменения видны сразу, без перезагрузки (в том числе на второй странице)", () => {
@@ -65,14 +73,30 @@ describe("CommentItem — изменения видны сразу, без пе�
 });
 
 describe("CommentItem — фокус клавиатуры", () => {
-  it("меню — обычный список кнопок; Escape закрывает и возвращает фокус", async () => {
+  it("меню — обычный список кнопок; aria-expanded, Escape закрывает и возвращает фокус", async () => {
     render(<CommentItem comment={view(1)} viewer={me} />);
     const trigger = screen.getByRole("button", { name: "Действия с комментарием" });
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
     await userEvent.click(trigger);
+    expect(trigger.getAttribute("aria-expanded")).toBe("true");
     expect(screen.queryByRole("menu")).toBeNull();
+    expect(document.getElementById(trigger.getAttribute("aria-controls") ?? "")).toBeTruthy();
+    await userEvent.tab();
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Изменить" }));
     await userEvent.keyboard("{Escape}");
     expect(screen.queryByRole("button", { name: "Изменить" })).toBeNull();
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
     expect(document.activeElement).toBe(trigger);
+  });
+
+  it("меню открывается с клавиатуры (Enter) и закрывается щелчком мимо", async () => {
+    render(<CommentItem comment={view(1)} viewer={me} />);
+    const trigger = screen.getByRole("button", { name: "Действия с комментарием" });
+    trigger.focus();
+    await userEvent.keyboard("{Enter}");
+    expect(trigger.getAttribute("aria-expanded")).toBe("true");
+    await userEvent.click(document.body);
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
   });
 
   it("«Удалить» переводит фокус в панель подтверждения", async () => {
@@ -94,7 +118,70 @@ describe("CommentItem — фокус клавиатуры", () => {
   });
 });
 
+describe("CommentItem — модератор", () => {
+  const moderator = { userId: "mod", isModerator: true, banned: false };
+
+  it("«Скрыть» → метка «Скрыт», в меню «Вернуть», фокус на кнопке меню", async () => {
+    moderation.hideComment.mockResolvedValue({ ok: true });
+    render(<CommentItem comment={view(1)} viewer={moderator} />);
+    await openMenu("Скрыть");
+    expect(moderation.hideComment).toHaveBeenCalledWith(1);
+    expect(await screen.findByText("Скрыт")).toBeTruthy();
+    const trigger = screen.getByRole("button", { name: "Действия с комментарием" });
+    expect(document.activeElement).toBe(trigger);
+    await userEvent.click(trigger);
+    expect(screen.getByRole("button", { name: "Вернуть" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Скрыть" })).toBeNull();
+  });
+
+  it("«Забанить автора»: срок, причина, итог", async () => {
+    moderation.banUser.mockResolvedValue({ ok: true });
+    render(<CommentItem comment={view(1)} viewer={moderator} />);
+    await openMenu("Забанить автора");
+    expect(document.activeElement).toBe(screen.getByLabelText("1 день"));
+    await userEvent.click(screen.getByLabelText("7 дней"));
+    await userEvent.type(screen.getByLabelText("Причина (необязательно)"), "флуд");
+    await userEvent.click(screen.getByRole("button", { name: "Забанить" }));
+    expect(moderation.banUser).toHaveBeenCalledWith("me", "7d", "флуд");
+    expect(await screen.findByText("@alice заблокирован")).toBeTruthy();
+  });
+
+  it("ошибка базы — сообщение, статус не меняется", async () => {
+    moderation.hideComment.mockResolvedValue({ ok: false, message: "Это действие недоступно" });
+    render(<CommentItem comment={view(1)} viewer={moderator} />);
+    await openMenu("Скрыть");
+    expect(await screen.findByText("Это действие недоступно")).toBeTruthy();
+    expect(screen.queryByText("Скрыт")).toBeNull();
+  });
+
+  it("обычному пользователю пунктов модератора нет", async () => {
+    render(<CommentItem comment={view(1, { author: { ...author, id: "other" } })} viewer={me} />);
+    await userEvent.click(screen.getByRole("button", { name: "Действия с комментарием" }));
+    expect(screen.queryByRole("button", { name: "Скрыть" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Забанить автора" })).toBeNull();
+  });
+});
+
 describe("CommentsList", () => {
+  it("модератор: скрытые ответы в превью не прячут «Показать ещё ответы»", async () => {
+    const reply = (id: number, status: CommentView["status"]) =>
+      view(id, { parentId: 1, status, createdAt: `2026-11-03T10:00:0${id}Z` });
+    // Ветка: [скрытый, скрытый, видимый×3]; reply_count = 3 (только видимые), превью — первые 3 с скрытыми.
+    const thread = view(1, { replyCount: 3, replies: [reply(2, "hidden"), reply(3, "hidden"), reply(4, "visible")] });
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ replies: [reply(5, "visible"), reply(6, "visible")], nextCursor: null })),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    render(
+      <CommentsList target={{ animeId: 1 }} viewer={{ userId: "mod", isModerator: true, banned: false }} initial={[thread]} initialCursor={null} />,
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Показать ещё ответы (2)" }));
+    expect(await screen.findByText("Текст 6")).toBeTruthy();
+    expect(String(fetchMock.mock.calls[0][0])).toContain("cursor=");
+    expect(screen.queryByRole("button", { name: /Показать ещё ответы/ })).toBeNull();
+    vi.unstubAllGlobals();
+  });
+
   it("ответ во вторую ветку появляется сразу", async () => {
     const created = view(9, { parentId: 1, body: "Мой ответ" });
     actions.createComment.mockResolvedValue({ ok: true, comment: created });
