@@ -51,7 +51,15 @@ async function makeUser(letter) {
   return { id: data.user.id, client };
 }
 
+async function makeModerator(letter) {
+  const user = await makeUser(letter);
+  const { error } = await admin.from("profiles").update({ role: "moderator" }).eq("id", user.id);
+  if (error) throw new Error(`role ${letter}: ${error.message}`);
+  return user;
+}
+
 const rows = (response) => (response.error ? response.error.code : `строк: ${response.data?.length}`);
+const code = (response) => response.error?.code ?? `HTTP ${response.status}`;
 const blocked = (response) => !!response.error || response.data?.length === 0;
 
 try {
@@ -179,6 +187,174 @@ try {
   const setCompleted = await A.client.from("watch_progress").update({ completed: false }).eq("user_id", A.id);
   check("completed не задаётся вручную (вычисляется)", !!setCompleted.error, setCompleted.error?.code ?? "ЗАДАН");
 
+  // ---- comments: ветка, права на колонки, мягкое удаление, флуд, баны, жалобы, действия модератора (ADR-025) ----
+  const M = await makeModerator("m");
+  const M2 = await makeModerator("n");
+  const COVER = "https://s4.anilist.co/file/anilistcdn/media/anime/cover/medium/probe.jpg";
+  const comment = (fields) => ({ anilist_id: PROBE_ANIME_ID, body: "Проба", anime_title: "Проба", anime_cover_url: COVER, ...fields });
+  const insertComment = (client, fields) => client.from("comments").insert(comment(fields)).select("id, status, reply_count").single();
+  const act = (client, fields) => client.from("moderation_actions").insert(fields).select("id").single();
+  const journal = async (action, commentId) =>
+    (await admin.from("moderation_actions").select("id").eq("action", action).eq("comment_id", commentId)).data?.length ?? 0;
+
+  const a1 = await insertComment(A.client, {});
+  check("A пишет комментарий к тайтлу", !a1.error && a1.data?.status === "visible", code(a1));
+  const b1 = await insertComment(B.client, {});
+  check("B пишет комментарий к тайтлу", !b1.error, code(b1));
+  const a2 = await insertComment(A.client, { parent_id: b1.data.id, reply_to_user_id: B.id });
+  check("A отвечает B", !a2.error, code(a2));
+  const b2 = await insertComment(B.client, { parent_id: b1.data.id, reply_to_user_id: A.id });
+  check("B отвечает в своей ветке с @A", !b2.error, code(b2));
+  const nested = await insertComment(B.client, { parent_id: a2.data.id });
+  check("ответ на ответ — PT422 / HTTP 422", nested.error?.code === "PT422" && nested.status === 422, code(nested));
+  const stranger = await insertComment(A.client, { parent_id: b1.data.id, reply_to_user_id: M.id });
+  check("reply_to постороннего — PT422", stranger.error?.code === "PT422", code(stranger));
+  const visibleEp = eps.find((episode) => episode.number === 1);
+  const b3 = await insertComment(B.client, { episode_id: visibleEp.id });
+  check("B пишет к видимой серии", !b3.error, code(b3));
+  const otherAnime = await insertComment(B.client, { anilist_id: 1, episode_id: visibleEp.id });
+  check("серия другого тайтла отклоняется", !!otherAnime.error, code(otherAnime));
+  const hiddenEp = await insertComment(B.client, { episode_id: hidden.id });
+  check("серия без прав отклоняется", !!hiddenEp.error, code(hiddenEp));
+  const foreignCover = await insertComment(A.client, { anime_cover_url: "https://evil.example/file/anilistcdn/x.jpg" });
+  check("обложка с чужого домена — 23514", foreignCover.error?.code === "23514", code(foreignCover));
+  const longCover = await insertComment(A.client, { anime_cover_url: `${COVER}?${"x".repeat(500)}` });
+  check("обложка длиннее 500 — 23514", longCover.error?.code === "23514", code(longCover));
+  const tooLong = await insertComment(A.client, { body: "x".repeat(2001) });
+  check("текст длиннее 2000 — 23514", tooLong.error?.code === "23514", code(tooLong));
+  const forgedAuthor = await A.client.from("comments").insert(comment({ user_id: B.id }));
+  check("A не пишет от имени B", !!forgedAuthor.error, code(forgedAuthor));
+  const forgedStatus = await A.client.from("comments").insert(comment({ status: "hidden" }));
+  check("статус при вставке не задаётся", forgedStatus.error?.code === "42501", code(forgedStatus));
+  const anonComment = await anon.from("comments").insert(comment({}));
+  check("гость не пишет комментарии", !!anonComment.error, code(anonComment));
+  const anonRead = await anon.from("comments").select("id").eq("anilist_id", PROBE_ANIME_ID);
+  check("гость читает видимые комментарии", anonRead.data?.length === 5, rows(anonRead));
+
+  for (const [column, value] of [
+    ["status", "deleted"],
+    ["is_spoiler", true],
+    ["parent_id", b1.data.id],
+    ["reply_count", 99],
+    ["anime_title", "Подмена"],
+    ["anime_cover_url", COVER],
+    ["user_id", B.id],
+    ["anilist_id", 1],
+  ]) {
+    const response = await A.client.from("comments").update({ [column]: value }).eq("id", a1.data.id).select("id");
+    check(`A не меняет ${column} своего комментария — 42501`, response.error?.code === "42501", code(response));
+  }
+  const edit = await A.client.from("comments").update({ body: "Исправлено" }).eq("id", a1.data.id).select("body, edited_at").single();
+  check("A меняет текст — edited_at выставлен", edit.data?.body === "Исправлено" && edit.data?.edited_at !== null, code(edit));
+  const editOther = await A.client.from("comments").update({ body: "чужое" }).eq("id", b1.data.id).select("id");
+  check("A не правит комментарий B", blocked(editOther), rows(editOther));
+  await A.client.from("comments").delete().eq("id", b1.data.id);
+  const b1After = await admin.from("comments").select("status").eq("id", b1.data.id).single();
+  check("A не удаляет комментарий B", b1After.data?.status === "visible", b1After.data?.status);
+  const softDelete = await A.client.from("comments").delete().eq("id", a2.data.id);
+  const a2After = await admin.from("comments").select("status, body").eq("id", a2.data.id).single();
+  check(
+    "delete — строка осталась со status deleted и body null",
+    !softDelete.error && a2After.data?.status === "deleted" && a2After.data?.body === null,
+    code(softDelete),
+  );
+  const rootCount = await admin.from("comments").select("reply_count").eq("id", b1.data.id).single();
+  check("reply_count корня — только видимые ответы", rootCount.data?.reply_count === 1, `${rootCount.data?.reply_count}`);
+  const previews = await anon.rpc("comment_reply_previews", { root_ids: [b1.data.id] });
+  check("превью ответов: удалённый не показан", previews.data?.length === 1 && previews.data[0].id === b2.data.id, rows(previews));
+  const tooMany = await anon.rpc("comment_reply_previews", { root_ids: Array.from({ length: 21 }, (_, i) => i + 1) });
+  check("превью ответов: больше 20 корней — PT422", tooMany.error?.code === "PT422", code(tooMany));
+
+  // Действия модератора — вставка в moderation_actions; журнал = выполненные действия.
+  const notModerator = await act(A.client, { action: "hide", comment_id: b2.data.id });
+  check("A не выполняет действия модератора", !!notModerator.error, code(notModerator));
+  check("после отказа комментарий не скрыт", (await admin.from("comments").select("status").eq("id", b2.data.id).single()).data?.status === "visible");
+  const hide = await act(M.client, { action: "hide", comment_id: b2.data.id });
+  check("M скрывает: эффект и одна строка журнала", !hide.error && (await journal("hide", b2.data.id)) === 1, code(hide));
+  for (const [who, client, expected] of [
+    ["гость", anon, 0],
+    ["A", A.client, 0],
+    ["автор B", B.client, 0],
+    ["M", M.client, 1],
+  ]) {
+    const seen = await client.from("comments").select("id").eq("id", b2.data.id);
+    check(`скрытый комментарий: ${who} видит ${expected}`, seen.data?.length === expected, rows(seen));
+  }
+  const hideAgain = await act(M.client, { action: "hide", comment_id: b2.data.id });
+  check("hide скрытого — PT422, журнал не вырос", hideAgain.error?.code === "PT422" && (await journal("hide", b2.data.id)) === 1, code(hideAgain));
+  const restore = await act(M.client, { action: "restore", comment_id: b2.data.id });
+  const b2Restored = await admin.from("comments").select("status").eq("id", b2.data.id).single();
+  check("M возвращает скрытый", !restore.error && b2Restored.data?.status === "visible", code(restore));
+
+  // Жалобы.
+  const report = (client, commentId, reason = "spam") =>
+    client.from("comment_reports").insert({ comment_id: commentId, reason }).select("id, status").single();
+  const r1 = await report(A.client, b1.data.id);
+  check("A жалуется на комментарий B", !r1.error && r1.data?.status === "open", code(r1));
+  const r1Again = await report(A.client, b1.data.id, "offensive");
+  check("повторная жалоба — 23505", r1Again.error?.code === "23505", code(r1Again));
+  const ownReport = await report(B.client, b1.data.id);
+  check("жалоба на свой комментарий — PT422", ownReport.error?.code === "PT422", code(ownReport));
+  const r2 = await report(B.client, a1.data.id);
+  check("B жалуется на комментарий A", !r2.error, code(r2));
+  const aReports = await A.client.from("comment_reports").select("id");
+  check("A видит только свои жалобы", aReports.data?.length === 1, rows(aReports));
+  const mReports = await M.client.from("comment_reports").select("id").in("comment_id", [a1.data.id, b1.data.id]);
+  check("M видит все жалобы", mReports.data?.length === 2, rows(mReports));
+  const reportUpdate = await A.client.from("comment_reports").update({ status: "dismissed" }).eq("id", r1.data.id).select("id");
+  check("A не меняет статус жалобы", !!reportUpdate.error || reportUpdate.data?.length === 0, code(reportUpdate));
+  const dismiss = await act(M.client, { action: "dismiss_reports", comment_id: a1.data.id });
+  const r2After = await admin.from("comment_reports").select("status, resolved_by").eq("id", r2.data.id).single();
+  check("dismiss_reports отклоняет жалобы", !dismiss.error && r2After.data?.status === "dismissed" && r2After.data?.resolved_by === M.id, code(dismiss));
+  const dismissNone = await act(M.client, { action: "dismiss_reports", comment_id: a1.data.id });
+  check("dismiss_reports без открытых жалоб — PT422", dismissNone.error?.code === "PT422", code(dismissNone));
+  await act(M.client, { action: "hide", comment_id: b1.data.id });
+  const r1After = await admin.from("comment_reports").select("status").eq("id", r1.data.id).single();
+  check("скрытие закрывает жалобы (resolved)", r1After.data?.status === "resolved", r1After.data?.status);
+
+  // Баны.
+  const E = await makeUser("e");
+  const directBan = await A.client.from("user_bans").insert({ user_id: E.id });
+  check("A не пишет в user_bans — 42501", directBan.error?.code === "42501", code(directBan));
+  const mDirectBan = await M.client.from("user_bans").insert({ user_id: E.id });
+  check("M не пишет в user_bans напрямую", !!mDirectBan.error, code(mDirectBan));
+  const banModerator = await act(M.client, { action: "ban", target_user_id: M2.id, ban_duration: "7d" });
+  check("M не банит модератора — PT422", banModerator.error?.code === "PT422", code(banModerator));
+  const banSelf = await act(M.client, { action: "ban", target_user_id: M.id, ban_duration: "1d" });
+  check("M не банит себя — PT422", banSelf.error?.code === "PT422", code(banSelf));
+  const ban = await act(M.client, { action: "ban", target_user_id: E.id, ban_duration: "1d", reason: "проба" });
+  const eBans = await E.client.from("user_bans").select("expires_at, moderator_id");
+  check(
+    "M банит E на 1 день: срок считает база",
+    !ban.error && eBans.data?.length === 1 && Math.abs(Date.parse(eBans.data[0].expires_at) - Date.now() - 86_400_000) < 120_000,
+    code(ban),
+  );
+  check("A не видит баны E", (await A.client.from("user_bans").select("id").eq("user_id", E.id)).data?.length === 0);
+  const bannedWrite = await insertComment(E.client, {});
+  check("забаненный не пишет — PT403 / HTTP 403", bannedWrite.error?.code === "PT403" && bannedWrite.status === 403, code(bannedWrite));
+  const bannedReport = await report(E.client, b3.data.id);
+  check("забаненный не жалуется", !!bannedReport.error, code(bannedReport));
+  const unban = await act(M.client, { action: "unban", target_user_id: E.id });
+  const afterUnban = await insertComment(E.client, {});
+  check("после unban пишет снова", !unban.error && !afterUnban.error, `${code(unban)} / ${code(afterUnban)}`);
+  const unbanAgain = await act(M.client, { action: "unban", target_user_id: E.id });
+  check("unban без действующего бана — PT422", unbanAgain.error?.code === "PT422", code(unbanAgain));
+  const journalEdit = await M.client.from("moderation_actions").update({ reason: "подмена" }).eq("id", ban.data.id).select("id");
+  check("M не меняет журнал", !!journalEdit.error || journalEdit.data?.length === 0, code(journalEdit));
+  const journalDelete = await M.client.from("moderation_actions").delete().eq("id", ban.data.id).select("id");
+  check("M не удаляет журнал", !!journalDelete.error || journalDelete.data?.length === 0, code(journalDelete));
+  check("A не читает журнал", (await A.client.from("moderation_actions").select("id")).data?.length === 0);
+
+  // Флуд-лимит: 5 в минуту.
+  const C = await makeUser("c");
+  let serialOk = 0;
+  for (let i = 0; i < 5; i += 1) if (!(await insertComment(C.client, {})).error) serialOk += 1;
+  const sixth = await insertComment(C.client, {});
+  check("6-й комментарий за минуту — PT429 / HTTP 429", serialOk === 5 && sixth.error?.code === "PT429" && sixth.status === 429, code(sixth));
+  const D = await makeUser("d");
+  const parallel = await Promise.all(Array.from({ length: 6 }, () => insertComment(D.client, {})));
+  check("6 параллельных вставок — ровно 5 успешных", parallel.filter((r) => !r.error).length === 5, parallel.map(code).join(","));
+
   // ---- anime_localizations: пишет только service role ----
   const trUser = await A.client.from("anime_localizations").update({ title_ru: "x" }).eq("anilist_id", 1).select("anilist_id");
   check("пользователь не меняет переводы", blocked(trUser), rows(trUser));
@@ -230,6 +406,8 @@ try {
   results.push(`⚠️ сбой проверки: ${error.message}`);
 } finally {
   await admin.from("episodes").delete().eq("anilist_id", PROBE_ANIME_ID);
+  // Журнал модерации переживает удаление пользователей (ссылки обнуляются) — строки проб убираем явно.
+  if (created.length) await admin.from("moderation_actions").delete().in("moderator_id", created);
   for (const id of created) {
     const { data: files } = await admin.storage.from("avatars").list(id);
     if (files?.length) await admin.storage.from("avatars").remove(files.map((file) => `${id}/${file.name}`));
@@ -246,7 +424,13 @@ try {
     .from("episodes")
     .select("id", { count: "exact", head: true })
     .eq("anilist_id", PROBE_ANIME_ID);
-  results.push(`🧹 осталось: профилей ${profilesLeft}, файлов аватаров ${filesLeft}, временных серий ${episodesLeft}`);
+  const { count: commentsLeft } = await admin
+    .from("comments")
+    .select("id", { count: "exact", head: true })
+    .eq("anilist_id", PROBE_ANIME_ID);
+  results.push(
+    `🧹 осталось: профилей ${profilesLeft}, файлов аватаров ${filesLeft}, временных серий ${episodesLeft}, комментариев ${commentsLeft ?? "—"}`,
+  );
   console.log(results.join("\n"));
   if (results.some((line) => line.startsWith("❌") || line.startsWith("⚠️"))) process.exitCode = 1;
 }
