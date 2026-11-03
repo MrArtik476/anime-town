@@ -79,11 +79,7 @@ npm i -D @playwright/test
 `translate` — фоновый машинный перевод без сервера (см. «Машинный перевод: настройка DeepL»).
 `typecheck` сначала генерирует типы маршрутов (`LayoutProps`, `PageProps` и т. п. в `.next/types`), иначе `tsc` без предварительного `build` падает с `Cannot find name 'LayoutProps'`.
 
-Добавить вместе с Supabase-проектом:
-```json
-"db:types": "supabase gen types typescript --linked > src/types/database.ts"
-```
-`db:types` берёт проект из `supabase link` (один раз: `npx supabase login` → `npx supabase link --project-ref <ref>`), поэтому работает и в cmd.exe на Windows, где npm-скрипты не подставляют `$VAR`.
+`db:types` — `npx supabase gen types typescript --project-id bhzshfkhpumyojxuygsc --schema public > src/types/database.ts`: CLI ставить не нужно, `supabase link` не нужен. Нужен личный токен Supabase в переменной окружения `SUPABASE_ACCESS_TOKEN` (Dashboard → Account → Access Tokens), заданной в системе или в терминале — npm-скрипты не читают `.env.local`. Без токена команда падает, а перенаправление `>` уже обнулило файл: вернуть его — `git checkout src/types/database.ts`. Пока токена нет, типы генерируются через Supabase MCP `generate_typescript_types` и вручную переносятся в `src/types/database.ts`.
 
 ## Тестирование
 | Уровень | Команда | Что проверяет |
@@ -110,7 +106,19 @@ npm i -D @playwright/test
 - Адрес видео для плеера получается только в `resolvePlaybackSource()` — менять источник (этап 8) нужно там.
 
 ## Проверка доступа (RLS) на настоящем проекте
-`npm run rls:check` (`scripts/rls-check.mjs`): создаёт двух временных пользователей через admin API (нужен `SUPABASE_SERVICE_ROLE_KEY=sb_secret_…`), проверяет от их сессий и от гостя доступ к `profiles`, `anime_list`, `anime_rating_stats`, `anime_localizations`, `episodes`/`subtitles`, `watch_progress` и Storage `avatars` (47 проверок; временные серии на несуществующем тайтле тоже удаляются), затем удаляет их файлы и самих пользователей. Код выхода 1 — найдена дыра или сбой. Запускать после каждой миграции с RLS.
+`npm run rls:check` (`scripts/rls-check.mjs`): создаёт двух временных пользователей через admin API (нужен `SUPABASE_SERVICE_ROLE_KEY=sb_secret_…`), проверяет от их сессий и от гостя доступ к `profiles`, `anime_list`, `anime_rating_stats`, `anime_localizations`, `episodes`/`subtitles`, `watch_progress`, Storage `avatars` и комментариям: права на колонки `comments`, мягкое удаление, ветку ответов, флуд-лимит (5 подряд и 6 параллельных), баны, жалобы и действия модератора с журналом — для этого ещё два временных модератора и три пользователя (131 проверка; временные серии на несуществующем тайтле и строки журнала модерации тоже удаляются), затем удаляет их файлы и самих пользователей. Код выхода 1 — найдена дыра или сбой. Запускать после каждой миграции с RLS.
+
+## Модерация: роли и баны (до админки этапа 6)
+- **Назначить модератора** — SQL Editor в Supabase (роль меняет только сервер):
+  ```sql
+  update public.profiles set role = 'moderator' where lower(username) = lower('ник');
+  ```
+  Вернуть обычную роль — `role = 'user'`.
+- **Снять бан** — кнопка «Снять бан» в `/moderation` (действие `unban`, пишется в журнал; страница — с PR 5a-3). Запасной путь для владельца, без записи в журнал:
+  ```sql
+  update public.user_bans set revoked_at = now()
+  where user_id = (select id from public.profiles where lower(username) = lower('ник')) and revoked_at is null;
+  ```
 
 ## Аккаунты: настройка Supabase Auth (локально)
 1. Supabase Dashboard → Authentication → URL Configuration: **Site URL** `http://localhost:3000`, **Redirect URLs** — `http://localhost:3000/**`. Без этого ссылки из писем ведут не на `/auth/callback`.
@@ -145,7 +153,7 @@ npm run build && npm run start      # http://localhost:3000
 - `SHIKIMORI_GRAPHQL_URL` — адрес Shikimori GraphQL; по умолчанию `https://shikimori.io/api/graphql`, ключ не нужен. Переопределяется только для тестов.
 - `SUPABASE_SERVICE_ROLE_KEY` (+ `NEXT_PUBLIC_SUPABASE_URL`) — только сервер: запись переводов в `anime_localizations`. Без него переводы хранятся в памяти процесса и теряются при перезапуске. E2E-сборка (`ANIME_TOWN_E2E=1`) всегда использует память и в настоящую базу не пишет.
 - `TRANSLATOR_PROVIDER`, `DEEPL_API_KEY` (или `TRANSLATOR_API_KEY`), `TRANSLATE_MONTHLY_CHAR_LIMIT`, `TRANSLATE_RUN_CHAR_LIMIT`, `CRON_SECRET` — машинный перевод, см. «Машинный перевод: настройка DeepL». `DEEPL_API_URL` учитывается только в E2E-сборке.
-- Типы базы: `npm run db:types` (нужен однократный `npx supabase login`) или Supabase MCP `generate_typescript_types` → `src/types/database.ts`. Миграции — `supabase/migrations/`.
+- Типы базы: `npm run db:types` (нужен `SUPABASE_ACCESS_TOKEN`, см. «Скрипты package.json») или Supabase MCP `generate_typescript_types` → `src/types/database.ts`. Миграции — `supabase/migrations/`.
 - Supabase-клиенты (`src/lib/supabase/`) создаются только при наличии реальных `NEXT_PUBLIC_SUPABASE_URL` и `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`; значения-заглушки считаются отсутствующими. Каталог Supabase не использует — без `.env.local` всё работает.
 
 ## Машинный перевод: настройка DeepL

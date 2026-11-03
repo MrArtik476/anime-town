@@ -157,7 +157,7 @@ npm run perf         # замер скорости локальной production
 npm run build:test-hls       # пересобрать тестовый HLS-ролик public/media/test/ (без ffmpeg)
 npm run seed:test-episodes   # тестовые серии-заглушки (-- --remove — удалить)
 ```
-`npm run db:types` — типы базы (нужен `npx supabase login`); миграции — `supabase/migrations/`. Обязательные проверки перед коммитом — `lint`, `typecheck`, `test`, `build`, `test:e2e`.
+`npm run db:types` — типы базы (нужен `SUPABASE_ACCESS_TOKEN` в окружении; без него — Supabase MCP `generate_typescript_types`); миграции — `supabase/migrations/`. Обязательные проверки перед коммитом — `lint`, `typecheck`, `test`, `build`, `test:e2e`.
 AniList: лимит запросов низкий (30/мин на 31.10.2026) — не гонять живой API в циклах и тестах; для тестов есть мок (`tests/mock-anilist`).
 Shikimori: 5 запросов/с и 90/мин, обязателен User-Agent `AnimeTown/…`, глубина GraphQL-запроса ≤ 5 — только с сервера, через `lib/shikimori`; в тестах — мок `tests/mock-shikimori`.
 DeepL: только из фонового заполнения (по расписанию — Edge Function `translate-cron` через Supabase Cron, ADR-024; вручную — `npm run translate` или `/api/cron/translate`; журнал и блокировка — `translation_runs`), никогда со страниц; не гонять живой API в тестах — мок `tests/mock-deepl`; значения ключей не выводить.

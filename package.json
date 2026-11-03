@@ -19,7 +19,7 @@
     "functions:check": "node scripts/build-edge-functions.mjs --check",
     "seed:test-episodes": "node scripts/seed-test-episodes.mjs",
     "build:test-hls": "node scripts/build-test-hls.mjs",
-    "db:types": "supabase gen types typescript --project-id bhzshfkhpumyojxuygsc --schema public > src/types/database.ts",
+    "db:types": "npx supabase gen types typescript --project-id bhzshfkhpumyojxuygsc --schema public > src/types/database.ts",
     "prepare": "node scripts/install-hooks.mjs"
   },
   "dependencies": {
