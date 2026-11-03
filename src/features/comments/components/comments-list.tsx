@@ -51,7 +51,8 @@ export function CommentsList({
     setCursor(page.nextCursor);
   };
 
-  if (threads.length === 0) {
+  // Пусто только если и дальше ничего нет: удалённые корни без ответов отсеиваются, страница может оказаться пустой.
+  if (threads.length === 0 && !cursor) {
     return <p className="text-sm text-muted-foreground">Пока никто не написал. Будьте первым!</p>;
   }
 
@@ -81,10 +82,12 @@ export function CommentsList({
 
 function Thread({ thread, target, viewer }: { thread: CommentView; target: CommentTarget; viewer: CommentViewer }) {
   const [replies, setReplies] = useState(thread.replies);
+  // Ответы, написанные здесь: показываются сразу и учитываются в счётчике «Показать ещё ответы».
+  const [added, setAdded] = useState(0);
   const [replyingTo, setReplyingTo] = useState<CommentView | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const hidden = Math.max(thread.replyCount - replies.length, 0);
+  const hidden = Math.max(thread.replyCount + added - replies.length, 0);
 
   const loadReplies = async () => {
     const last = replies.at(-1);
@@ -123,6 +126,11 @@ function Thread({ thread, target, viewer }: { thread: CommentView; target: Comme
               target={target}
               replyTo={{ id: replyingTo.id, username: replyingTo.author?.username ?? null }}
               onDone={() => setReplyingTo(null)}
+              onCreated={(created) => {
+                if (replies.some((reply) => reply.id === created.id)) return;
+                setReplies([...replies, created]);
+                setAdded(added + 1);
+              }}
               autoFocus
             />
           )}

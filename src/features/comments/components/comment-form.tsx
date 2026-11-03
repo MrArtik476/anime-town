@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 import { createComment } from "../actions";
-import { type CommentTarget, MAX_BODY } from "../model";
+import { type CommentTarget, type CommentView, MAX_BODY } from "../model";
 
 export const textareaClass =
   "block w-full resize-y rounded-lg border border-input bg-card px-3 py-2.5 text-base outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/40 disabled:opacity-60";
@@ -60,11 +60,14 @@ export function CommentForm({
   target,
   replyTo,
   onDone,
+  onCreated,
   autoFocus,
 }: {
   target: CommentTarget;
   replyTo?: { id: number; username: string | null };
   onDone?: () => void;
+  /** Созданный комментарий — показать сразу, не дожидаясь обновления страницы. */
+  onCreated?: (comment: CommentView) => void;
   autoFocus?: boolean;
 }) {
   const id = useId();
@@ -85,6 +88,7 @@ export function CommentForm({
       }
       setBody("");
       setSpoiler(false);
+      if (result.comment) onCreated?.(result.comment);
       onDone?.();
     });
   };

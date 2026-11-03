@@ -36,7 +36,7 @@ function formatWhen(iso: string): string {
 type Mode = "view" | "edit" | "confirm-delete" | "report";
 
 export function CommentItem({
-  comment,
+  comment: initial,
   viewer,
   onReply,
 }: {
@@ -44,8 +44,11 @@ export function CommentItem({
   viewer: CommentViewer;
   onReply?: (comment: CommentView) => void;
 }) {
+  // Правка и удаление видны сразу — и в ветках, догруженных «Показать ещё», которые refresh() не перерисует.
+  const [comment, setComment] = useState(initial);
   const [mode, setMode] = useState<Mode>("view");
   const [menuOpen, setMenuOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
   const [message, setMessage] = useState<{ text: string; error: boolean } | null>(null);
   const menuId = useId();
   const menuRef = useRef<HTMLDivElement>(null);
@@ -53,7 +56,11 @@ export function CommentItem({
   useEffect(() => {
     if (!menuOpen) return;
     const close = (event: MouseEvent | KeyboardEvent) => {
-      if (event instanceof KeyboardEvent ? event.key === "Escape" : !menuRef.current?.contains(event.target as Node)) {
+      if (event instanceof KeyboardEvent) {
+        if (event.key !== "Escape") return;
+        setMenuOpen(false);
+        triggerRef.current?.focus();
+      } else if (!menuRef.current?.contains(event.target as Node)) {
         setMenuOpen(false);
       }
     };
@@ -96,10 +103,10 @@ export function CommentItem({
             <div ref={menuRef} className="relative ml-auto">
               <Button
                 type="button"
+                ref={triggerRef}
                 variant="ghost"
                 size="icon-sm"
                 aria-label="Действия с комментарием"
-                aria-haspopup="menu"
                 aria-expanded={menuOpen}
                 aria-controls={menuId}
                 onClick={() => setMenuOpen((open) => !open)}
@@ -107,12 +114,11 @@ export function CommentItem({
                 <MoreHorizontal aria-hidden />
               </Button>
               {menuOpen && (
-                <ul id={menuId} role="menu" className="absolute right-0 z-20 mt-1 min-w-44 rounded-lg border border-border bg-popover p-1 shadow-lg">
+                <ul id={menuId} className="absolute right-0 z-20 mt-1 min-w-44 rounded-lg border border-border bg-popover p-1 shadow-lg">
                   {items.map((item) => (
-                    <li key={item.label} role="none">
+                    <li key={item.label}>
                       <button
                         type="button"
-                        role="menuitem"
                         onClick={() => {
                           setMenuOpen(false);
                           setMessage(null);
@@ -134,7 +140,14 @@ export function CommentItem({
           {comment.status === "deleted" || comment.body === null ? (
             <p className="text-muted-foreground italic">Комментарий удалён</p>
           ) : mode === "edit" ? (
-            <EditForm comment={comment} onDone={() => setMode("view")} />
+            <EditForm
+              comment={comment}
+              onCancel={() => setMode("view")}
+              onSaved={(body, editedAt) => {
+                setComment({ ...comment, body, editedAt: editedAt ?? new Date().toISOString() });
+                setMode("view");
+              }}
+            />
           ) : (
             <>
               {comment.replyTo && <span className="mr-1 font-medium text-primary">@{comment.replyTo.username}</span>}
@@ -147,6 +160,10 @@ export function CommentItem({
           <ConfirmDelete
             id={comment.id}
             onCancel={() => setMode("view")}
+            onDeleted={() => {
+              setComment({ ...comment, status: "deleted", body: null, isSpoiler: false });
+              setMode("view");
+            }}
             onError={(text) => {
               setMode("view");
               setMessage({ text, error: true });
@@ -172,7 +189,15 @@ export function CommentItem({
   );
 }
 
-function EditForm({ comment, onDone }: { comment: CommentView; onDone: () => void }) {
+function EditForm({
+  comment,
+  onCancel,
+  onSaved,
+}: {
+  comment: CommentView;
+  onCancel: () => void;
+  onSaved: (body: string, editedAt: string | null) => void;
+}) {
   const id = useId();
   const [body, setBody] = useState(comment.body ?? "");
   const [error, setError] = useState<string | null>(null);
@@ -182,7 +207,7 @@ function EditForm({ comment, onDone }: { comment: CommentView; onDone: () => voi
     setError(null);
     startTransition(async () => {
       const result = await editComment(comment.id, { body });
-      if (result.ok) onDone();
+      if (result.ok) onSaved(body.trim(), result.editedAt);
       else setError(result.message);
     });
   };
@@ -195,7 +220,7 @@ function EditForm({ comment, onDone }: { comment: CommentView; onDone: () => voi
         </p>
       )}
       <div className="flex justify-end gap-2">
-        <Button type="button" variant="ghost" onClick={onDone} disabled={pending}>
+        <Button type="button" variant="ghost" onClick={onCancel} disabled={pending}>
           Отмена
         </Button>
         <Button type="submit" disabled={pending || body.trim().length === 0}>
@@ -206,13 +231,24 @@ function EditForm({ comment, onDone }: { comment: CommentView; onDone: () => voi
   );
 }
 
-function ConfirmDelete({ id, onCancel, onError }: { id: number; onCancel: () => void; onError: (text: string) => void }) {
+function ConfirmDelete({
+  id,
+  onCancel,
+  onDeleted,
+  onError,
+}: {
+  id: number;
+  onCancel: () => void;
+  onDeleted: () => void;
+  onError: (text: string) => void;
+}) {
   const [pending, startTransition] = useTransition();
   return (
     <div role="group" aria-label="Удалить комментарий?" className="mt-2 flex flex-wrap items-center gap-2 rounded-lg border border-border/70 bg-muted/40 p-3 text-sm">
       <span>Удалить комментарий?</span>
       <div className="ml-auto flex gap-2">
-        <Button type="button" variant="ghost" onClick={onCancel} disabled={pending}>
+        {/* Меню закрылось — фокус переходит в панель, а не теряется на <body>. */}
+        <Button type="button" variant="ghost" onClick={onCancel} disabled={pending} autoFocus>
           Отмена
         </Button>
         <Button
@@ -222,7 +258,8 @@ function ConfirmDelete({ id, onCancel, onError }: { id: number; onCancel: () => 
           onClick={() =>
             startTransition(async () => {
               const result = await deleteComment(id);
-              if (!result.ok) onError(result.message);
+              if (result.ok) onDeleted();
+              else onError(result.message);
             })
           }
         >
@@ -252,7 +289,7 @@ function ReportForm({ id, onDone }: { id: number; onDone: (text: string | null, 
         <div className="grid gap-1.5 sm:grid-cols-2">
           {REPORT_REASONS.map((value) => (
             <label key={value} className="inline-flex items-center gap-2">
-              <input type="radio" name={`${formId}-reason`} value={value} checked={reason === value} onChange={() => setReason(value)} className="accent-primary" />
+              <input type="radio" name={`${formId}-reason`} value={value} checked={reason === value} autoFocus={value === REPORT_REASONS[0]} onChange={() => setReason(value)} className="accent-primary" />
               {REPORT_REASON_LABELS[value]}
             </label>
           ))}

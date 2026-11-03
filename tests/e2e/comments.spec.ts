@@ -23,7 +23,7 @@ async function menu(page: Page, text: string, item: string) {
   const button = target.getByRole("button", { name: "Действия с комментарием" }).first();
   await expect(button).toBeVisible();
   await button.click();
-  await page.getByRole("menuitem", { name: item }).click();
+  await target.getByRole("button", { name: item, exact: true }).click();
 }
 
 async function reply(page: Page, to: string, username: string, text: string) {

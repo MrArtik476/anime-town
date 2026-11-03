@@ -24,6 +24,13 @@ export type CommentView = {
   replies: CommentView[];
 };
 
+const COVER_PREFIX = /^https:\/\/s4\.anilist\.co\/file\/anilistcdn\//;
+
+/** Обложка для снимка — по тем же правилам, что check в базе (comments.anime_cover_url), иначе null. */
+export function snapshotCover(url: string | null | undefined): string | null {
+  return url && url.length <= 500 && COVER_PREFIX.test(url) ? url : null;
+}
+
 /** Обсуждение тайтла (без серии) или серии. */
 export type CommentTarget = { animeId: number; episodeNumber?: number };
 

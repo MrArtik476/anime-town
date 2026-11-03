@@ -17,7 +17,7 @@ import {
   REPLY_PREVIEW,
 } from "./model";
 
-const COLUMNS =
+export const COLUMNS =
   "id, user_id, anilist_id, episode_id, parent_id, reply_to_user_id, body, is_spoiler, status, reply_count, anime_title, anime_cover_url, created_at, edited_at";
 
 export type Viewer = {
