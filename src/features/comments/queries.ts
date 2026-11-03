@@ -78,7 +78,14 @@ export async function getCommentsPage(target: CommentTarget, rawCursor: string |
   if (episodeId === null) return empty;
 
   const supabase = await createClient();
-  let query = supabase.from("comments").select(COLUMNS).eq("anilist_id", target.animeId).is("parent_id", null);
+  // Удалённый корень без ответов отсекает запрос, а не код: на странице всегда до 20 корней (спек §4).
+  // Скрытые модератору отдаёт RLS. Второй or() (курсор) PostgREST объединяет с этим через «и».
+  let query = supabase
+    .from("comments")
+    .select(COLUMNS)
+    .eq("anilist_id", target.animeId)
+    .is("parent_id", null)
+    .or("status.neq.deleted,reply_count.gt.0");
   query = episodeId === undefined ? query.is("episode_id", null) : query.eq("episode_id", episodeId);
   const cursor = decodeCursor(rawCursor);
   if (cursor) {

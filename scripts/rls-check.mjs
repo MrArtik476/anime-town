@@ -196,6 +196,8 @@ try {
   const act = (client, fields) => client.from("moderation_actions").insert(fields).select("id").single();
   const journal = async (action, commentId) =>
     (await admin.from("moderation_actions").select("id").eq("action", action).eq("comment_id", commentId)).data?.length ?? 0;
+  const journalFor = async (action, userId) =>
+    (await admin.from("moderation_actions").select("id").eq("action", action).eq("target_user_id", userId)).data?.length ?? 0;
 
   const a1 = await insertComment(A.client, {});
   check("A пишет комментарий к тайтлу", !a1.error && a1.data?.status === "visible", code(a1));
@@ -271,7 +273,7 @@ try {
 
   // Действия модератора — вставка в moderation_actions; журнал = выполненные действия.
   const notModerator = await act(A.client, { action: "hide", comment_id: b2.data.id });
-  check("A не выполняет действия модератора", !!notModerator.error, code(notModerator));
+  check("A не выполняет действия модератора — 42501", notModerator.error?.code === "42501", code(notModerator));
   check("после отказа комментарий не скрыт", (await admin.from("comments").select("status").eq("id", b2.data.id).single()).data?.status === "visible");
   const hide = await act(M.client, { action: "hide", comment_id: b2.data.id });
   check("M скрывает: эффект и одна строка журнала", !hide.error && (await journal("hide", b2.data.id)) === 1, code(hide));
@@ -288,7 +290,11 @@ try {
   check("hide скрытого — PT422, журнал не вырос", hideAgain.error?.code === "PT422" && (await journal("hide", b2.data.id)) === 1, code(hideAgain));
   const restore = await act(M.client, { action: "restore", comment_id: b2.data.id });
   const b2Restored = await admin.from("comments").select("status").eq("id", b2.data.id).single();
-  check("M возвращает скрытый", !restore.error && b2Restored.data?.status === "visible", code(restore));
+  check(
+    "M возвращает скрытый: эффект и одна строка журнала",
+    !restore.error && b2Restored.data?.status === "visible" && (await journal("restore", b2.data.id)) === 1,
+    code(restore),
+  );
 
   // Жалобы.
   const report = (client, commentId, reason = "spam") =>
@@ -309,9 +315,17 @@ try {
   check("A не меняет статус жалобы", !!reportUpdate.error || reportUpdate.data?.length === 0, code(reportUpdate));
   const dismiss = await act(M.client, { action: "dismiss_reports", comment_id: a1.data.id });
   const r2After = await admin.from("comment_reports").select("status, resolved_by").eq("id", r2.data.id).single();
-  check("dismiss_reports отклоняет жалобы", !dismiss.error && r2After.data?.status === "dismissed" && r2After.data?.resolved_by === M.id, code(dismiss));
+  check(
+    "dismiss_reports отклоняет жалобы: эффект и одна строка журнала",
+    !dismiss.error && r2After.data?.status === "dismissed" && r2After.data?.resolved_by === M.id && (await journal("dismiss_reports", a1.data.id)) === 1,
+    code(dismiss),
+  );
   const dismissNone = await act(M.client, { action: "dismiss_reports", comment_id: a1.data.id });
-  check("dismiss_reports без открытых жалоб — PT422", dismissNone.error?.code === "PT422", code(dismissNone));
+  check(
+    "dismiss_reports без открытых жалоб — PT422, журнал не вырос",
+    dismissNone.error?.code === "PT422" && (await journal("dismiss_reports", a1.data.id)) === 1,
+    code(dismissNone),
+  );
   await act(M.client, { action: "hide", comment_id: b1.data.id });
   const r1After = await admin.from("comment_reports").select("status").eq("id", r1.data.id).single();
   check("скрытие закрывает жалобы (resolved)", r1After.data?.status === "resolved", r1After.data?.status);
@@ -331,8 +345,11 @@ try {
   const ban = await act(M.client, { action: "ban", target_user_id: E.id, ban_duration: "1d", reason: "проба" });
   const eBans = await E.client.from("user_bans").select("expires_at, moderator_id");
   check(
-    "M банит E на 1 день: срок считает база",
-    !ban.error && eBans.data?.length === 1 && Math.abs(Date.parse(eBans.data[0].expires_at) - Date.now() - 86_400_000) < 120_000,
+    "M банит E на 1 день: срок считает база, одна строка журнала",
+    !ban.error &&
+      eBans.data?.length === 1 &&
+      Math.abs(Date.parse(eBans.data[0].expires_at) - Date.now() - 86_400_000) < 120_000 &&
+      (await journalFor("ban", E.id)) === 1,
     code(ban),
   );
   check("A не видит баны E", (await A.client.from("user_bans").select("id").eq("user_id", E.id)).data?.length === 0);
@@ -344,9 +361,38 @@ try {
   check("забаненный не жалуется — PT403 / HTTP 403", bannedReport.error?.code === "PT403" && bannedReport.status === 403, code(bannedReport));
   const unban = await act(M.client, { action: "unban", target_user_id: E.id });
   const afterUnban = await insertComment(E.client, {});
-  check("после unban пишет снова", !unban.error && !afterUnban.error, `${code(unban)} / ${code(afterUnban)}`);
+  check(
+    "после unban пишет снова, одна строка журнала",
+    !unban.error && !afterUnban.error && (await journalFor("unban", E.id)) === 1,
+    `${code(unban)} / ${code(afterUnban)}`,
+  );
   const unbanAgain = await act(M.client, { action: "unban", target_user_id: E.id });
-  check("unban без действующего бана — PT422", unbanAgain.error?.code === "PT422", code(unbanAgain));
+  check(
+    "unban без действующего бана — PT422, журнал не вырос",
+    unbanAgain.error?.code === "PT422" && (await journalFor("unban", E.id)) === 1,
+    code(unbanAgain),
+  );
+
+  // Страница корней (getCommentsPage): удалённый корень без ответов отсекает запрос, с ответами — остаётся.
+  // Два or() в одном запросе (фильтр и курсор) PostgREST объединяет через «и».
+  const lonely = await insertComment(A.client, {});
+  const parent = await insertComment(A.client, {});
+  await insertComment(B.client, { parent_id: parent.data.id });
+  await A.client.from("comments").delete().in("id", [lonely.data.id, parent.data.id]);
+  const page = await anon
+    .from("comments")
+    .select("id, status")
+    .eq("anilist_id", PROBE_ANIME_ID)
+    .is("episode_id", null)
+    .is("parent_id", null)
+    .or("status.neq.deleted,reply_count.gt.0")
+    .or(`created_at.lt."2999-01-01T00:00:00Z",and(created_at.eq."2999-01-01T00:00:00Z",id.lt.1))`);
+  const pageIds = new Set(page.data?.map((row) => row.id));
+  check(
+    "страница корней: удалённый без ответов отсечён, удалённый с ответами и видимый — на месте",
+    !page.error && !pageIds.has(lonely.data.id) && pageIds.has(parent.data.id) && pageIds.has(a1.data.id),
+    code(page),
+  );
   const journalEdit = await M.client.from("moderation_actions").update({ reason: "подмена" }).eq("id", ban.data.id).select("id");
   check("M не меняет журнал", !!journalEdit.error || journalEdit.data?.length === 0, code(journalEdit));
   const journalDelete = await M.client.from("moderation_actions").delete().eq("id", ban.data.id).select("id");
@@ -471,8 +517,11 @@ try {
     .from("comments")
     .select("id", { count: "exact", head: true })
     .eq("anilist_id", PROBE_ANIME_ID);
+  const leftover = [profilesLeft, filesLeft, episodesLeft, commentsLeft];
+  // Ненулевой (или не прочитанный) остаток — ⚠️, и прогон падает: временные данные не должны копиться в проекте.
+  const clean = leftover.every((count) => count === 0);
   results.push(
-    `🧹 осталось: профилей ${profilesLeft}, файлов аватаров ${filesLeft}, временных серий ${episodesLeft}, комментариев ${commentsLeft ?? "—"}`,
+    `${clean ? "🧹" : "⚠️"} осталось: профилей ${profilesLeft ?? "—"}, файлов аватаров ${filesLeft}, временных серий ${episodesLeft ?? "—"}, комментариев ${commentsLeft ?? "—"}`,
   );
   console.log(results.join("\n"));
   if (results.some((line) => line.startsWith("❌") || line.startsWith("⚠️"))) process.exitCode = 1;

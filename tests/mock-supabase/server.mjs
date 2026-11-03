@@ -606,6 +606,78 @@ async function handleReports(req, res, url) {
   return respondRows(req, res, url, 201, [row]);
 }
 
+/**
+ * Действия модератора (moderation_actions): вставка — команда, эффект применяет «триггер» (как private.moderation_apply).
+ * Только модератор; недопустимое действие — PT422.
+ */
+const moderationActions = [];
+const BAN_DAYS = { "1d": 1, "7d": 7, "30d": 30 };
+
+async function handleModerationActions(req, res, url) {
+  const user = userByToken(req);
+  if (!user || req.method !== "POST") return pgError(res, 401, "42501", "permission denied for table moderation_actions");
+  if (!isModerator(user)) return pgError(res, 403, "42501", "not_moderator");
+  const item = await readJson(req);
+  const now = new Date().toISOString();
+  const resolveReports = (commentId, status) => {
+    let changed = 0;
+    for (const report of commentReports) {
+      if (report.comment_id === commentId && report.status === "open") {
+        Object.assign(report, { status, resolved_by: user.id, resolved_at: now });
+        changed += 1;
+      }
+    }
+    return changed;
+  };
+  const target = item.comment_id != null ? comments.get(item.comment_id) : undefined;
+  if (["hide", "restore", "dismiss_reports"].includes(item.action) && !target) return pgError(res, 422, "PT422", "comment_not_found");
+  switch (item.action) {
+    case "hide":
+      if (target.status !== "visible") return pgError(res, 422, "PT422", "not_visible");
+      target.status = "hidden";
+      resolveReports(target.id, "resolved");
+      break;
+    case "restore":
+      if (target.status !== "hidden") return pgError(res, 422, "PT422", "not_hidden");
+      target.status = "visible";
+      break;
+    case "dismiss_reports":
+      if (resolveReports(target.id, "dismissed") === 0) return pgError(res, 422, "PT422", "no_open_reports");
+      break;
+    case "ban": {
+      const role = profiles.get(item.target_user_id)?.role;
+      if (role !== "user" || item.target_user_id === user.id || !(item.ban_duration in BAN_DAYS || item.ban_duration === "forever")) {
+        return pgError(res, 422, "PT422", "invalid_ban_target");
+      }
+      const days = BAN_DAYS[item.ban_duration];
+      userBans.push({
+        id: userBans.length + 1,
+        user_id: item.target_user_id,
+        moderator_id: user.id,
+        reason: item.reason ?? null,
+        expires_at: days ? new Date(Date.now() + days * 86_400_000).toISOString() : null,
+        revoked_at: null,
+        revoked_by: null,
+        created_at: now,
+      });
+      break;
+    }
+    case "unban": {
+      const active = userBans.filter(
+        (ban) => ban.user_id === item.target_user_id && !ban.revoked_at && (!ban.expires_at || Date.parse(ban.expires_at) > Date.now()),
+      );
+      if (active.length === 0) return pgError(res, 422, "PT422", "no_active_ban");
+      for (const ban of active) Object.assign(ban, { revoked_at: now, revoked_by: user.id });
+      break;
+    }
+    default:
+      return pgError(res, 422, "PT422", "unknown_action");
+  }
+  const row = { id: moderationActions.length + 1, moderator_id: user.id, ...item, target_user_id: item.target_user_id ?? target?.user_id ?? null, created_at: now };
+  moderationActions.push(row);
+  return respondRows(req, res, url, 201, [row]);
+}
+
 function handleBans(req, res, url) {
   const user = userByToken(req);
   if (!user || req.method !== "GET") return pgError(res, 401, "42501", "permission denied for table user_bans");
@@ -618,6 +690,7 @@ async function handleRest(req, res, path, url) {
   if (path === "/rest/v1/rpc/comment_reply_previews") return handleReplyPreviews(req, res);
   if (path === "/rest/v1/comment_reports") return handleReports(req, res, url);
   if (path === "/rest/v1/user_bans") return handleBans(req, res, url);
+  if (path === "/rest/v1/moderation_actions") return handleModerationActions(req, res, url);
   if (path === "/rest/v1/watch_progress") return handleProgress(req, res, url);
   if (path === "/rest/v1/episodes") return handleReadOnly(req, res, url, EPISODES.filter((e) => e.license_status !== "none"));
   if (path === "/rest/v1/subtitles") return handleReadOnly(req, res, url, SUBTITLES.filter((s) => visibleEpisodeIds.has(s.episode_id)));
@@ -655,6 +728,22 @@ async function handleRest(req, res, path, url) {
   }
 
   return send(res, 405, { message: "method not allowed in mock" });
+}
+
+// Модератор для E2E (роль в базе ставит владелец SQL-запросом — DEVELOPMENT.md).
+const MODERATOR = { email: "moderator@e2e.test", password: "Sakura-2026!", username: "moderator_e2e" };
+{
+  const moderator = {
+    id: randomUUID(),
+    email: MODERATOR.email,
+    password: MODERATOR.password,
+    metadata: { username: MODERATOR.username },
+    confirmed: true,
+    created_at: new Date().toISOString(),
+  };
+  users.set(moderator.email, moderator);
+  createProfile(moderator);
+  profiles.get(moderator.id).role = "moderator";
 }
 
 createServer(async (req, res) => {

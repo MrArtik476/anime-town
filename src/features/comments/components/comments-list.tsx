@@ -5,7 +5,7 @@ import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
 
-import { type CommentTarget, type CommentView, encodeCursor } from "../model";
+import { type CommentTarget, type CommentView, encodeCursor, REPLY_PREVIEW } from "../model";
 import { CommentForm } from "./comment-form";
 import { CommentItem, type CommentViewer } from "./comment-item";
 
@@ -51,7 +51,7 @@ export function CommentsList({
     setCursor(page.nextCursor);
   };
 
-  // Пусто только если и дальше ничего нет: удалённые корни без ответов отсеиваются, страница может оказаться пустой.
+  // «Пока никто не написал» — только если и дальше ничего нет: пустая страница с курсором ведёт к «Показать ещё».
   if (threads.length === 0 && !cursor) {
     return <p className="text-sm text-muted-foreground">Пока никто не написал. Будьте первым!</p>;
   }
@@ -87,33 +87,40 @@ function Thread({ thread, target, viewer }: { thread: CommentView; target: Comme
   const [replyingTo, setReplyingTo] = useState<CommentView | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const hidden = Math.max(thread.replyCount + added - replies.length, 0);
+  // Курсор догрузки: undefined — ещё не догружали (продолжаем после превью), null — ответов больше нет.
+  const [moreCursor, setMoreCursor] = useState<string | null | undefined>(undefined);
+  // reply_count считает только видимые ответы, а модератор видит и скрытые — поэтому сравниваем с видимыми.
+  const remaining = Math.max(thread.replyCount + added - replies.filter((reply) => reply.status === "visible").length, 0);
+  const hasMore =
+    moreCursor === undefined ? remaining > 0 || (viewer.isModerator && thread.replies.length >= REPLY_PREVIEW) : moreCursor !== null;
 
   const loadReplies = async () => {
-    const last = replies.at(-1);
+    const previewLast = thread.replies.at(-1);
+    const cursor = moreCursor ?? (previewLast ? encodeCursor({ createdAt: previewLast.createdAt, id: previewLast.id }) : null);
     const params = new URLSearchParams({ root: String(thread.id) });
-    if (last) params.set("cursor", encodeCursor({ createdAt: last.createdAt, id: last.id }));
+    if (cursor) params.set("cursor", cursor);
     setLoading(true);
     setError(null);
-    const page = await fetchJson<{ replies: CommentView[] }>(`/api/comments?${params}`);
+    const page = await fetchJson<{ replies: CommentView[]; nextCursor: string | null }>(`/api/comments?${params}`);
     setLoading(false);
     if (!page) return setError(LOAD_FAILED);
     const known = new Set(replies.map((reply) => reply.id));
     setReplies([...replies, ...page.replies.filter((reply) => !known.has(reply.id))]);
+    setMoreCursor(page.nextCursor);
   };
 
   return (
     <div>
       <CommentItem comment={thread} viewer={viewer} onReply={setReplyingTo} />
-      {(replies.length > 0 || hidden > 0 || replyingTo) && (
+      {(replies.length > 0 || hasMore || replyingTo) && (
         <div className="mt-4 ml-[2.875rem] space-y-4 border-l border-border/60 pl-4">
           {replies.map((reply) => (
             <CommentItem key={reply.id} comment={reply} viewer={viewer} onReply={setReplyingTo} />
           ))}
-          {hidden > 0 && (
+          {hasMore && (
             <Button type="button" variant="link" className="h-auto px-0" onClick={loadReplies} disabled={loading}>
               {loading && <LoaderCircle aria-hidden className="animate-spin" />}
-              Показать ещё ответы ({hidden})
+              {remaining > 0 ? `Показать ещё ответы (${remaining})` : "Показать ещё ответы"}
             </Button>
           )}
           {error && (

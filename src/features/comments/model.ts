@@ -47,6 +47,9 @@ export function parseCommentBody(raw: unknown): string | null {
 
 type Cursor = { createdAt: string; id: number };
 
+/** created_at из PostgREST: «2026-11-03T10:00:00.123456+00:00» (или с Z). Date.parse пропускает и «1 Nov 2026». */
+const ISO_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,6})?(Z|[+-]\d{2}:\d{2})$/;
+
 // Курсор — только ASCII (дата ISO и число), поэтому хватает btoa/atob: модуль работает и в браузере.
 export function encodeCursor(cursor: Cursor): string {
   return btoa(`${cursor.createdAt}|${cursor.id}`).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
@@ -65,13 +68,14 @@ export function decodeCursor(raw: string | null | undefined): Cursor | null {
   if (separator <= 0) return null;
   const createdAt = decoded.slice(0, separator);
   const id = Number(decoded.slice(separator + 1));
-  if (!Number.isSafeInteger(id) || id <= 0 || Number.isNaN(Date.parse(createdAt))) return null;
+  if (!Number.isSafeInteger(id) || id <= 0 || !ISO_TIMESTAMP.test(createdAt) || Number.isNaN(Date.parse(createdAt))) return null;
   return { createdAt, id };
 }
 
 const STATUSES = ["visible", "hidden", "deleted"] as const;
 
-function toView(row: CommentRow, profiles: Map<string, ProfileRow>): CommentView {
+/** Строка базы → вид для UI (без фильтров по статусу). */
+export function toView(row: CommentRow, profiles: Map<string, ProfileRow>): CommentView {
   const author = profiles.get(row.user_id);
   const replyTo = row.reply_to_user_id ? profiles.get(row.reply_to_user_id) : undefined;
   return {
@@ -92,12 +96,13 @@ function toView(row: CommentRow, profiles: Map<string, ProfileRow>): CommentView
   };
 }
 
-/** Корни с ответами. Удалённый корень без видимых ответов не показывается, с ответами — «Комментарий удалён». */
+/**
+ * Корни с ответами. Удалённый корень с ответами — «Комментарий удалён»; без ответов его уже отсёк запрос
+ * (getCommentsPage), поэтому здесь корни не фильтруются.
+ */
 export function buildThreads(roots: CommentRow[], replies: CommentRow[], profileRows: ProfileRow[]): CommentView[] {
   const profiles = new Map(profileRows.map((profile) => [profile.id, profile]));
-  const threads = roots
-    .filter((root) => root.status !== "deleted" || root.reply_count > 0)
-    .map((root) => toView(root, profiles));
+  const threads = roots.map((root) => toView(root, profiles));
   const byId = new Map(threads.map((thread) => [thread.id, thread]));
   for (const reply of replies) {
     if (reply.status === "deleted" || reply.parent_id === null) continue;

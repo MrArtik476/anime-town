@@ -5,6 +5,8 @@ import { useEffect, useId, useRef, useState, useTransition } from "react";
 
 import { Button } from "@/components/ui/button";
 import { UserAvatar } from "@/features/auth/components/user-avatar";
+import { hideComment, restoreComment } from "@/features/moderation/actions";
+import { BanDialog } from "@/features/moderation/components/ban-dialog";
 import { cn } from "@/lib/utils";
 
 import { deleteComment, editComment, reportComment } from "../actions";
@@ -33,7 +35,7 @@ function formatWhen(iso: string): string {
   return dateFormat.format(Date.parse(iso));
 }
 
-type Mode = "view" | "edit" | "confirm-delete" | "report";
+type Mode = "view" | "edit" | "confirm-delete" | "report" | "ban";
 
 export function CommentItem({
   comment: initial,
@@ -50,6 +52,7 @@ export function CommentItem({
   const [menuOpen, setMenuOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const [message, setMessage] = useState<{ text: string; error: boolean } | null>(null);
+  const [, startModeration] = useTransition();
   const menuId = useId();
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -75,13 +78,27 @@ export function CommentItem({
   const own = viewer.userId !== null && comment.author?.id === viewer.userId;
   const visible = comment.status === "visible";
   const canWrite = viewer.userId !== null && !viewer.banned;
-  const items: { label: string; action: () => void }[] = [];
+  // keepFocus: пункт не открывает панель, кнопка «⋯» остаётся — фокус возвращается на неё, а не теряется на <body>.
+  const items: { label: string; action: () => void; keepFocus?: boolean }[] = [];
   if (visible && canWrite && onReply) items.push({ label: "Ответить", action: () => onReply(comment) });
   if (visible && own) {
     items.push({ label: "Изменить", action: () => setMode("edit") });
     items.push({ label: "Удалить", action: () => setMode("confirm-delete") });
   }
   if (visible && !own && canWrite) items.push({ label: "Пожаловаться", action: () => setMode("report") });
+  if (viewer.isModerator) {
+    // Действие — вставка в moderation_actions; права и допустимость проверяет база (PT422 → сообщение).
+    const moderate = (run: () => Promise<{ ok: true } | { ok: false; message: string }>, status: CommentView["status"]) => {
+      startModeration(async () => {
+        const result = await run();
+        if (result.ok) setComment((current) => ({ ...current, status }));
+        else setMessage({ text: result.message, error: true });
+      });
+    };
+    if (visible) items.push({ label: "Скрыть", action: () => moderate(() => hideComment(comment.id), "hidden"), keepFocus: true });
+    if (comment.status === "hidden") items.push({ label: "Вернуть", action: () => moderate(() => restoreComment(comment.id), "visible"), keepFocus: true });
+    if (comment.author && !own && comment.status !== "deleted") items.push({ label: "Забанить автора", action: () => setMode("ban") });
+  }
 
   const name = comment.author ? (comment.author.displayName ?? comment.author.username) : "Пользователь удалён";
 
@@ -122,6 +139,7 @@ export function CommentItem({
                         onClick={() => {
                           setMenuOpen(false);
                           setMessage(null);
+                          if (item.keepFocus) triggerRef.current?.focus();
                           item.action();
                         }}
                         className="w-full rounded-md px-3 py-2 text-left text-sm outline-none hover:bg-muted focus-visible:bg-muted"
@@ -173,6 +191,16 @@ export function CommentItem({
         {mode === "report" && (
           <ReportForm
             id={comment.id}
+            onDone={(text, error) => {
+              setMode("view");
+              if (text) setMessage({ text, error });
+            }}
+          />
+        )}
+        {mode === "ban" && comment.author && (
+          <BanDialog
+            userId={comment.author.id}
+            username={comment.author.username}
             onDone={(text, error) => {
               setMode("view");
               if (text) setMessage({ text, error });

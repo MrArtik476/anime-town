@@ -125,11 +125,14 @@ export async function deleteComment(rawId: unknown): Promise<ActionResult> {
   if (!user) return NOT_ALLOWED;
 
   const supabase = await createClient();
+  // DELETE через RLS молча пропускает чужие, скрытые, уже удалённые и несуществующие строки — без проверок
+  // до и после ответ был бы «успех». Удалить можно только свой видимый комментарий.
+  const { data: before } = await supabase.from("comments").select("user_id, status").eq("id", id).maybeSingle();
+  if (!before || before.status !== "visible" || before.user_id !== user.id) return NOT_ALLOWED;
   const { error } = await supabase.from("comments").delete().eq("id", id);
   if (error) return { ok: false, message: commentErrorMessage(error) };
-  // DELETE через RLS молча пропускает чужие строки — проверяем, что комментарий действительно удалён.
   const { data } = await supabase.from("comments").select("status").eq("id", id).maybeSingle();
-  if (data && data.status !== "deleted") return NOT_ALLOWED;
+  if (!data || data.status !== "deleted") return NOT_ALLOWED;
   refresh();
   return { ok: true };
 }
