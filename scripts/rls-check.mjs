@@ -326,6 +326,8 @@ try {
   check("M не банит модератора — PT422", banModerator.error?.code === "PT422", code(banModerator));
   const banSelf = await act(M.client, { action: "ban", target_user_id: M.id, ban_duration: "1d" });
   check("M не банит себя — PT422", banSelf.error?.code === "PT422", code(banSelf));
+  const banForeignComment = await act(M.client, { action: "ban", target_user_id: E.id, ban_duration: "1d", comment_id: b1.data.id });
+  check("ban с comment_id чужого автора — PT422", banForeignComment.error?.code === "PT422", code(banForeignComment));
   const ban = await act(M.client, { action: "ban", target_user_id: E.id, ban_duration: "1d", reason: "проба" });
   const eBans = await E.client.from("user_bans").select("expires_at, moderator_id");
   check(
@@ -334,6 +336,8 @@ try {
     code(ban),
   );
   check("A не видит баны E", (await A.client.from("user_bans").select("id").eq("user_id", E.id)).data?.length === 0);
+  const unbanForeignComment = await act(M.client, { action: "unban", target_user_id: E.id, comment_id: b1.data.id });
+  check("unban с чужим comment_id — PT422", unbanForeignComment.error?.code === "PT422", code(unbanForeignComment));
   const bannedWrite = await insertComment(E.client, {});
   check("забаненный не пишет — PT403 / HTTP 403", bannedWrite.error?.code === "PT403" && bannedWrite.status === 403, code(bannedWrite));
   const bannedReport = await report(E.client, b3.data.id);
@@ -357,6 +361,32 @@ try {
   if (!xDeleteError) created.splice(created.indexOf(X.id), 1);
   const b3After = (await admin.from("comments").select("reply_count").eq("id", b3.data.id).single()).data?.reply_count;
   check("удаление аккаунта уменьшает reply_count корня", !xReply.error && b3Before === 1 && b3After === 0, `${b3Before} → ${b3After}`);
+
+  // Удаление аккаунта с корнем и ответами: свой ответ и чужой уходят одним каскадом, триггер не падает.
+  const Y = await makeUser("y");
+  const yRoot = await insertComment(Y.client, {});
+  const yOwnReply = await insertComment(Y.client, { parent_id: yRoot.data?.id });
+  const aReplyToY = await insertComment(A.client, { parent_id: yRoot.data?.id, reply_to_user_id: Y.id });
+  const { error: yDeleteError } = await admin.auth.admin.deleteUser(Y.id);
+  if (!yDeleteError) created.splice(created.indexOf(Y.id), 1);
+  const yLeft = await admin.from("comments").select("id").in("id", [yRoot.data?.id, yOwnReply.data?.id, aReplyToY.data?.id]);
+  check(
+    "удаление аккаунта с корнем и ответами — без ошибки, ветка удалена целиком",
+    !yRoot.error && !yOwnReply.error && !aReplyToY.error && !yDeleteError && yLeft.data?.length === 0,
+    yDeleteError?.message ?? rows(yLeft),
+  );
+
+  // Превью ответов: per_root зажат в 1…20, null — значение по умолчанию (3).
+  const pRoot = await admin.from("comments").insert(comment({ user_id: M2.id })).select("id").single();
+  for (let i = 0; i < 4; i += 1) await admin.from("comments").insert(comment({ user_id: M.id, parent_id: pRoot.data.id }));
+  for (const [perRoot, expected] of [
+    [null, 3],
+    [100, 4],
+    [0, 1],
+  ]) {
+    const preview = await anon.rpc("comment_reply_previews", { root_ids: [pRoot.data.id], per_root: perRoot });
+    check(`превью ответов: per_root ${perRoot} → ${expected}`, preview.data?.length === expected, rows(preview));
+  }
 
   // Флуд-лимит: 5 в минуту.
   const C = await makeUser("c");
