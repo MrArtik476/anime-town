@@ -1,6 +1,4 @@
 import { execFile } from "node:child_process";
-import { mkdtempSync, readFileSync } from "node:fs";
-import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 
@@ -41,21 +39,16 @@ async function translate(args: string[], env: NodeJS.ProcessEnv): Promise<RunRes
 }
 
 test.describe("npm run translate", () => {
-  test("переводит не больше --limit тайтлов и пишет сводку для GitHub Actions", async () => {
-    const summaryFile = path.join(mkdtempSync(path.join(tmpdir(), "translate-")), "summary.md");
-    const result = await translate(["--limit", "1"], scriptEnv({ GITHUB_STEP_SUMMARY: summaryFile }));
+  test("переводит не больше --limit тайтлов, ключ не попадает в вывод", async () => {
+    const result = await translate(["--limit", "1"], scriptEnv());
 
     expect(result.code, result.stderr).toBe(0);
     const report = JSON.parse(result.stdout);
     expect(report).toMatchObject({ translator: "deepl", stopped: null, pending: 1, translated: 1, batches: 1 });
     expect(report.characters).toBeGreaterThan(0);
     expect(report.usage.ownLimit).toBe(450_000);
-
-    const summary = readFileSync(summaryFile, "utf8");
-    expect(summary).toContain("✅ готово");
-    expect(summary).toContain("| Переведено | 1 |");
-    // Ни в отчёте, ни в сводке нет ключа.
-    expect(result.stdout + result.stderr + summary).not.toContain(E2E_DEEPL_KEY);
+    // В отчёте и логах нет ключа.
+    expect(result.stdout + result.stderr).not.toContain(E2E_DEEPL_KEY);
   });
 
   test("без переводчика — код 1, символы не тратятся", async () => {

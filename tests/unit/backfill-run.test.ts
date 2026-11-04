@@ -2,12 +2,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { BackfillReport } from "@/lib/localization/backfill";
-import {
-  formatBackfillSummary,
-  isBackfillFailure,
-  parseBackfillArgs,
-  parseBackfillLimit,
-} from "@/lib/localization/backfill-run";
+import { isBackfillFailure, parseBackfillArgs, parseBackfillLimit } from "@/lib/localization/backfill-run";
 
 const report = (overrides: Partial<BackfillReport> = {}): BackfillReport => ({
   translator: "deepl",
@@ -47,7 +42,7 @@ describe("parseBackfillArgs", () => {
   it("--limit N и --limit=N", () => {
     expect(parseBackfillArgs(["--limit", "5"])).toEqual({ help: false, limit: 5 });
     expect(parseBackfillArgs(["--limit=3"])).toEqual({ help: false, limit: 3 });
-    // Пустое значение из workflow_dispatch — без ограничения.
+    // Пустое значение — без ограничения.
     expect(parseBackfillArgs(["--limit="])).toEqual({ help: false, limit: undefined });
   });
 
@@ -74,21 +69,4 @@ describe("isBackfillFailure", () => {
       expect(isBackfillFailure(report({ stopped }))).toBe(false);
     },
   );
-});
-
-describe("formatBackfillSummary", () => {
-  it("расход до и после запуска, без текстов", () => {
-    const summary = formatBackfillSummary(report());
-    expect(summary).toContain("✅ готово");
-    expect(summary).toContain("| Переведено | 5 |");
-    // 104 200 − 4 200 = 100 000 до запуска.
-    expect(summary).toMatch(/100\s000 → 104\s200 из 500\s000 \(свой предел 450\s000\)/);
-  });
-
-  it("сбой и отсутствие данных о расходе", () => {
-    const summary = formatBackfillSummary(report({ translator: null, stopped: "no_translator", usage: null }));
-    expect(summary).toContain("❌ сбой");
-    expect(summary).toContain("| Переводчик | не настроен |");
-    expect(summary).toContain("| Расход символов: до → после | нет данных |");
-  });
 });

@@ -5,24 +5,19 @@
  * ADR-024), и пишет переводы прямо в Supabase (`anime_localizations`, service role). Запуск отмечается
  * в журнале `translation_runs` (trigger = manual) и не начнётся, пока идёт другой. Переменные — из `.env.local`.
  *
- * Вывод — отчёт JSON без текстов и ключей; при `$GITHUB_STEP_SUMMARY` ещё и сводка (workflow_dispatch).
+ * Вывод — отчёт JSON без текстов и ключей.
  * Код выхода: 0 — готово (в том числе исчерпанная квота и «уже идёт другой запуск»), 1 — сбой настройки
  * или базы, 2 — неверные аргументы.
  */
-import { appendFileSync, existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { parseEnv } from "node:util";
 
-import {
-  formatBackfillSummary,
-  isBackfillFailure,
-  MAX_BACKFILL_LIMIT,
-  parseBackfillArgs,
-} from "@/lib/localization/backfill-run";
+import { isBackfillFailure, MAX_BACKFILL_LIMIT, parseBackfillArgs } from "@/lib/localization/backfill-run";
 
 const USAGE = `Использование: npm run translate -- [--limit N]   (N от 1 до ${MAX_BACKFILL_LIMIT}, по умолчанию — все кандидаты)`;
 
 /**
- * Переменные из .env.local, как у `next dev`; уже заданные в окружении (секреты CI) не перезаписываются.
+ * Переменные из .env.local, как у `next dev`; уже заданные в окружении не перезаписываются.
  * В E2E (ANIME_TOWN_E2E=1) файл не читается: тест работает только с моками и фиктивными ключами.
  */
 function loadEnvLocal(file = ".env.local") {
@@ -59,7 +54,6 @@ async function main(): Promise<number> {
   }
   const { report } = run;
   console.log(JSON.stringify(report, null, 2));
-  if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, formatBackfillSummary(report));
 
   if (isBackfillFailure(report)) {
     console.error(`[translator] заполнение остановлено: ${report.stopped}`);
