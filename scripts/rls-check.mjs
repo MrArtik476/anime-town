@@ -633,6 +633,139 @@ try {
     `${rows(naEditsB)} / у B new_episode ${nbPrefsAfter.data?.new_episode ?? code(nbPrefsAfter)}`,
   );
 
+  // Флуд-лимит в этом блоке (5 в минуту): NA 3, NB 2, NC 3, ND 4 комментария; NE не пишет.
+  const notesForComment = (commentId) => admin.from("notifications").select("id, user_id, type, title, cover_url, read_at").eq("comment_id", commentId ?? 0);
+  // NC отвечает в ветке NA с @NB (у NB там есть ответ): автор корня и упомянутый — по одному уведомлению.
+  // В ответе чужой снимок («Подделка» и другая обложка): получателям достаётся снимок их собственного комментария.
+  const FAKE_COVER = "https://s4.anilist.co/file/anilistcdn/media/anime/cover/medium/fake.jpg";
+  const ncMention = await insertComment(NC.client, {
+    parent_id: naRoot.data.id,
+    reply_to_user_id: NB.id,
+    anime_title: "Подделка",
+    anime_cover_url: FAKE_COVER,
+  });
+  const mentionNotes = await notesForComment(ncMention.data?.id);
+  const mentionTo = (userId) => mentionNotes.data?.filter((row) => row.user_id === userId).length;
+  check(
+    "ответ с reply_to уведомляет и автора корня, и упомянутого",
+    !ncMention.error && mentionNotes.data?.length === 2 && mentionTo(NA.id) === 1 && mentionTo(NB.id) === 1,
+    `${code(ncMention)} / ${mentionNotes.error?.code ?? `NA ${mentionTo(NA.id)}, NB ${mentionTo(NB.id)}, всего ${mentionNotes.data?.length}`}`,
+  );
+  const coverName = (url) => (url === COVER ? "COVER" : url === FAKE_COVER ? "чужая" : `${url}`);
+  check(
+    "чужой снимок не попадает в уведомление",
+    mentionNotes.data?.length === 2 && mentionNotes.data.every((row) => row.type === "reply" && row.title === "Проба" && row.cover_url === COVER),
+    mentionNotes.error?.code ?? (mentionNotes.data?.map((row) => `${row.title} / ${coverName(row.cover_url)}`).join("; ") || "строк: 0"),
+  );
+
+  // ND отвечает NA дважды; NA читает первое уведомление; ND удаляет оба ответа (мягко — status deleted).
+  // Непрочитанное уведомление о втором уходит, прочитанное о первом остаётся.
+  const ND = await makeUser("nd");
+  const nd1 = await insertComment(ND.client, { parent_id: naRoot.data.id });
+  const nd2 = await insertComment(ND.client, { parent_id: naRoot.data.id });
+  const nd1Before = await notesForComment(nd1.data?.id);
+  const nd2Before = await notesForComment(nd2.data?.id);
+  const readNd1 = await NA.client
+    .from("notifications")
+    .update({ read_at: new Date().toISOString() })
+    .eq("id", nd1Before.data?.[0]?.id ?? 0)
+    .select("id");
+  const ndIds = [nd1.data?.id ?? 0, nd2.data?.id ?? 0];
+  const ndDelete = await ND.client.from("comments").delete().in("id", ndIds);
+  const ndStatuses = await admin.from("comments").select("status").in("id", ndIds);
+  const nd1After = await notesForComment(nd1.data?.id);
+  const nd2After = await notesForComment(nd2.data?.id);
+  check(
+    "скрытие/удаление ответа убирает только непрочитанные уведомления",
+    !nd1.error &&
+      !nd2.error &&
+      nd1Before.data?.length === 1 &&
+      nd2Before.data?.length === 1 &&
+      nd2Before.data[0].read_at === null &&
+      readNd1.data?.length === 1 &&
+      !ndDelete.error &&
+      ndStatuses.data?.length === 2 &&
+      ndStatuses.data.every((row) => row.status === "deleted") &&
+      nd1After.data?.length === 1 &&
+      nd1After.data[0].read_at !== null &&
+      !nd2After.error &&
+      nd2After.data?.length === 0,
+    `до: ${rows(nd1Before)} и ${rows(nd2Before)}; прочитано ${rows(readNd1)}; delete ${code(ndDelete)}, статусы ${ndStatuses.data?.map((row) => row.status).join(",") ?? code(ndStatuses)}; после: прочитанное ${rows(nd1After)}, непрочитанное ${rows(nd2After)}`,
+  );
+
+  // Модератор скрывает ответ (moderation_actions hide) — его непрочитанное уведомление уходит.
+  const ncHidden = await insertComment(NC.client, { parent_id: naRoot.data.id });
+  const hiddenBefore = await notesForComment(ncHidden.data?.id);
+  const modHide = await act(M.client, { action: "hide", comment_id: ncHidden.data?.id ?? 0 });
+  const hiddenStatus = await admin.from("comments").select("status").eq("id", ncHidden.data?.id ?? 0).single();
+  const hiddenAfter = await notesForComment(ncHidden.data?.id);
+  check(
+    "скрытие ответа модератором убирает его непрочитанное уведомление",
+    !ncHidden.error &&
+      hiddenBefore.data?.length === 1 &&
+      hiddenBefore.data[0].read_at === null &&
+      !modHide.error &&
+      hiddenStatus.data?.status === "hidden" &&
+      !hiddenAfter.error &&
+      hiddenAfter.data?.length === 0,
+    `до: ${rows(hiddenBefore)}; hide ${code(modHide)}, статус ${hiddenStatus.data?.status ?? code(hiddenStatus)}; после: ${rows(hiddenAfter)}`,
+  );
+
+  // NC выключает ответы: ND отвечает в ветке NC до и после — уведомление только о первом ответе.
+  const ncRoot = await insertComment(NC.client, {});
+  if (ncRoot.error) throw new Error(`comment NC: ${ncRoot.error.message}`);
+  const ndBeforeOff = await insertComment(ND.client, { parent_id: ncRoot.data.id });
+  const onNotes = await notesForComment(ndBeforeOff.data?.id);
+  const ncPrefs = await NC.client.from("notification_prefs").upsert({ reply: false, new_episode: true }, { onConflict: "user_id" }).select("reply");
+  const ndAfterOff = await insertComment(ND.client, { parent_id: ncRoot.data.id });
+  const offNotes = await notesForComment(ndAfterOff.data?.id);
+  check(
+    "настройка ответов выключена — уведомления об ответе нет",
+    !ndBeforeOff.error &&
+      onNotes.data?.length === 1 &&
+      onNotes.data[0].user_id === NC.id &&
+      ncPrefs.data?.length === 1 &&
+      ncPrefs.data[0].reply === false &&
+      !ndAfterOff.error &&
+      !offNotes.error &&
+      offNotes.data?.length === 0,
+    `включено: ${rows(onNotes)}; prefs ${ncPrefs.data?.[0]?.reply ?? code(ncPrefs)}; выключено: ${code(ndAfterOff)} / ${rows(offNotes)}`,
+  );
+
+  // NE держит тайтл с обложкой чужого домена (anime_list проверяет только https://): серия вставляется,
+  // у NE — уведомление с cover_url null; у NA обложка anilist сохранилась (фильтр не режет всё подряд).
+  const NE = await makeUser("ne");
+  const evilList = await NE.client
+    .from("anime_list")
+    .insert({ user_id: NE.id, anilist_id: PROBE_ANIME_ID, status: "watching", title: "Проба", cover_url: "https://evil.example/x.jpg" });
+  const ep10 = await admin
+    .from("episodes")
+    .insert({ anilist_id: PROBE_ANIME_ID, number: 10, license_status: "own", hls_url: "/media/test/master.m3u8" })
+    .select("id");
+  const coverNotes = await admin
+    .from("notifications")
+    .select("user_id, episode_number, title, cover_url")
+    .in("user_id", [NE.id, NA.id])
+    .eq("anilist_id", PROBE_ANIME_ID)
+    .eq("type", "new_episode")
+    .is("read_at", null);
+  const neNote = coverNotes.data?.filter((row) => row.user_id === NE.id);
+  const naNote = coverNotes.data?.filter((row) => row.user_id === NA.id);
+  check(
+    "обложка с чужого домена в anime_list — в уведомлении null",
+    !evilList.error &&
+      !ep10.error &&
+      ep10.data?.length === 1 &&
+      neNote?.length === 1 &&
+      neNote[0].episode_number === 10 &&
+      neNote[0].title === "Проба" &&
+      neNote[0].cover_url === null &&
+      naNote?.length === 1 &&
+      naNote[0].episode_number === 10 &&
+      naNote[0].cover_url === COVER,
+    `anime_list ${code(evilList)}; серия 10 ${code(ep10)}; NE ${neNote?.map((row) => `${row.episode_number} / ${row.cover_url}`).join(",") ?? coverNotes.error?.code}; NA ${naNote?.map((row) => `${row.episode_number} / ${coverName(row.cover_url)}`).join(",") ?? coverNotes.error?.code}`,
+  );
+
   // ---- anime_localizations: пишет только service role ----
   const trUser = await A.client.from("anime_localizations").update({ title_ru: "x" }).eq("anilist_id", 1).select("anilist_id");
   check("пользователь не меняет переводы", blocked(trUser), rows(trUser));
@@ -706,20 +839,16 @@ try {
     .from("comments")
     .select("id", { count: "exact", head: true })
     .eq("anilist_id", PROBE_ANIME_ID);
-  const notificationsLeftResponse = await admin
+  // Нет таблицы или ошибка — count null, остаток не 0: прогон падает, как и по другим счётчикам.
+  const { count: notificationsLeft } = await admin
     .from("notifications")
-    .select("id", { count: "exact" })
-    .eq("anilist_id", PROBE_ANIME_ID)
-    .limit(1);
-  // До применения миграции уведомлений таблицы нет (PGRST205) — остатка в ней быть не может.
-  // Не head: на HEAD отсутствующая таблица отвечает 204 без кода ошибки.
-  const notificationsMissing = notificationsLeftResponse.error?.code === "PGRST205";
-  const notificationsLeft = notificationsMissing ? 0 : notificationsLeftResponse.count;
+    .select("id", { count: "exact", head: true })
+    .eq("anilist_id", PROBE_ANIME_ID);
   const leftover = [profilesLeft, filesLeft, episodesLeft, commentsLeft, notificationsLeft];
   // Ненулевой (или не прочитанный) остаток — ⚠️, и прогон падает: временные данные не должны копиться в проекте.
   const clean = leftover.every((count) => count === 0);
   results.push(
-    `${clean ? "🧹" : "⚠️"} осталось: профилей ${profilesLeft ?? "—"}, файлов аватаров ${filesLeft}, временных серий ${episodesLeft ?? "—"}, комментариев ${commentsLeft ?? "—"}, уведомлений ${notificationsMissing ? "— (нет таблицы)" : (notificationsLeft ?? "—")}`,
+    `${clean ? "🧹" : "⚠️"} осталось: профилей ${profilesLeft ?? "—"}, файлов аватаров ${filesLeft}, временных серий ${episodesLeft ?? "—"}, комментариев ${commentsLeft ?? "—"}, уведомлений ${notificationsLeft ?? "—"}`,
   );
   console.log(results.join("\n"));
   if (results.some((line) => line.startsWith("❌") || line.startsWith("⚠️"))) process.exitCode = 1;
