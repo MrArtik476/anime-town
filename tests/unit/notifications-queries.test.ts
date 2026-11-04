@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { getNotifications } from "@/features/notifications/queries";
+import { getNotificationPrefs, getNotifications } from "@/features/notifications/queries";
 
 type Res = { data: unknown; error: { code: string } | null };
 const db = vi.hoisted(() => ({
@@ -18,6 +18,7 @@ vi.mock("@/lib/supabase/server", () => ({
       const result = () => db.results[table] ?? { data: [], error: null };
       const chain: Record<string, unknown> = {};
       for (const m of ["select", "eq", "is", "or", "in", "neq", "order"]) chain[m] = () => chain;
+      chain.maybeSingle = async () => result();
       chain.limit = async () => result();
       chain.then = (resolve: (r: Res) => unknown) => resolve(result());
       return chain;
@@ -104,5 +105,22 @@ describe("getNotifications", () => {
     db.results.notifications = { data: [], error: null };
     await getNotifications(null);
     expect(db.queried).toEqual(["notifications"]);
+  });
+});
+
+describe("getNotificationPrefs", () => {
+  it("нет строки — всё включено", async () => {
+    db.results.notification_prefs = { data: null, error: null };
+    expect(await getNotificationPrefs()).toEqual({ reply: true, newEpisode: true });
+  });
+
+  it("строка есть — её значения", async () => {
+    db.results.notification_prefs = { data: { reply: false, new_episode: true }, error: null };
+    expect(await getNotificationPrefs()).toEqual({ reply: false, newEpisode: true });
+  });
+
+  it("ошибка — null (форма не показывается)", async () => {
+    db.results.notification_prefs = { data: null, error: { code: "XX000" } };
+    expect(await getNotificationPrefs()).toBeNull();
   });
 });

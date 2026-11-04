@@ -56,7 +56,7 @@ export function safeNextPath(value: string | null | undefined, fallback = "/acco
 }
 
 /** Страницы, доступные только после входа: proxy отправляет гостя на /login?next=… */
-export const PROTECTED_PATHS = ["/account", "/auth/update-password"] as const;
+export const PROTECTED_PATHS = ["/account", "/auth/update-password", "/notifications"] as const;
 
 export function isProtectedPath(pathname: string): boolean {
   return PROTECTED_PATHS.some((path) => pathname === path || pathname.startsWith(`${path}/`));

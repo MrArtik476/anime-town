@@ -1,6 +1,6 @@
 import type { Browser, Page } from "@playwright/test";
 
-import { input, newUser, register, type TestUser } from "./account-helpers";
+import { input, login, newUser, register, type TestUser } from "./account-helpers";
 import { expect, routeImages, uniqueClientIp } from "./fixtures";
 
 // Общие шаги E2E комментариев и модерации (мок Supabase). Данные мока общие — у каждого теста свои тексты и ники.
@@ -42,4 +42,16 @@ export async function secondUser(browser: Browser, prefix: string): Promise<{ pa
   await register(page, user);
   await expect(page).toHaveURL(/\/account$/);
   return { page, user, close: () => context.close() };
+}
+
+export const MODERATOR = { email: "moderator@e2e.test", password: "Sakura-2026!" };
+
+/** Модератор мока (moderator@e2e.test) — в своём контексте браузера. */
+export async function moderatorPage(browser: Browser): Promise<{ page: Page; close: () => Promise<void> }> {
+  const context = await browser.newContext({ extraHTTPHeaders: { "x-forwarded-for": uniqueClientIp(98) } });
+  const page = await context.newPage();
+  await routeImages(page);
+  await login(page, MODERATOR.email, MODERATOR.password);
+  await expect(page).toHaveURL(/\/account$/);
+  return { page, close: () => context.close() };
 }

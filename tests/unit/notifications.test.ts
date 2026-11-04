@@ -3,10 +3,21 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { badgeLabel, commentAvailable, type NotificationRow, notificationHref, notificationText } from "@/features/notifications/model";
 
-const db = vi.hoisted(() => ({ user: { id: "me" } as { id: string } | null, count: 3 as number | null }));
+const db = vi.hoisted(() => ({
+  user: { id: "me" } as { id: string } | null,
+  count: 3 as number | null,
+  cursors: [] as (string | null)[],
+  failed: false,
+}));
 
 vi.mock("@/features/auth/session", () => ({ getCurrentUser: async () => db.user }));
-vi.mock("@/features/notifications/queries", () => ({ getUnreadCount: async () => (db.user ? db.count : null) }));
+vi.mock("@/features/notifications/queries", () => ({
+  getUnreadCount: async () => (db.user ? db.count : null),
+  getNotifications: async (cursor: string | null) => {
+    db.cursors.push(cursor);
+    return { items: [], nextCursor: null, failed: db.failed };
+  },
+}));
 
 const row = (patch: Partial<NotificationRow>): NotificationRow => ({
   actor_id: null,
@@ -129,5 +140,60 @@ describe("GET /api/notifications/unread-count", () => {
     db.count = null;
     const { GET } = await import("@/app/api/notifications/unread-count/route");
     expect((await GET()).status).toBe(502);
+  });
+});
+
+describe("GET /api/notifications — следующая страница («Показать ещё»)", () => {
+  beforeEach(() => {
+    db.user = { id: "me" };
+    db.cursors = [];
+    db.failed = false;
+  });
+
+  const get = async (query: string) => {
+    const { GET } = await import("@/app/api/notifications/route");
+    const { NextRequest } = await import("next/server");
+    return GET(new NextRequest(`http://localhost/api/notifications${query}`));
+  };
+
+  it("без сессии — 401 и no-store, список не читается", async () => {
+    db.user = null;
+    const response = await get("?cursor=abc");
+    expect(response.status).toBe(401);
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+    expect(db.cursors).toEqual([]);
+  });
+
+  it("с сессией — страница по курсору, no-store", async () => {
+    const response = await get("?cursor=abc");
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+    expect(await response.json()).toEqual({ items: [], nextCursor: null });
+    expect(db.cursors).toEqual(["abc"]);
+  });
+
+  it("ошибка списка — 502", async () => {
+    db.failed = true;
+    expect((await get("")).status).toBe(502);
+  });
+});
+
+describe("NotificationBell (сервер) — начальный счётчик", () => {
+  beforeEach(() => {
+    db.user = { id: "me" };
+    db.count = 3;
+  });
+
+  it("гостю колокольчик не рендерится", async () => {
+    db.user = null;
+    const { NotificationBell } = await import("@/features/notifications/components/notification-bell");
+    expect(await NotificationBell()).toBeNull();
+  });
+
+  it("вошедшему — BellPoller с начальным счётчиком; ошибка счётчика — null (без бейджа)", async () => {
+    const { NotificationBell } = await import("@/features/notifications/components/notification-bell");
+    expect((await NotificationBell())?.props).toEqual({ initialCount: 3 });
+    db.count = null;
+    expect((await NotificationBell())?.props).toEqual({ initialCount: null });
   });
 });

@@ -7,6 +7,7 @@ import {
   type Availability,
   commentAvailable,
   type NotificationItem,
+  type NotificationPrefs,
   type NotificationRow,
   notificationHref,
   notificationText,
@@ -129,4 +130,19 @@ export async function getNotifications(rawCursor: string | null): Promise<Notifi
     };
   });
   return { items, nextCursor, failed: false };
+}
+
+
+/** Настройки для формы в профиле. Нет строки — всё включено (как в триггерах); null — нет сессии или ошибка. */
+export async function getNotificationPrefs(): Promise<NotificationPrefs | null> {
+  if (!getSupabaseEnv()) return null;
+  const user = await getCurrentUser();
+  if (!user) return null;
+  const supabase = await createClient();
+  const { data, error } = await supabase.from("notification_prefs").select("reply, new_episode").eq("user_id", user.id).maybeSingle();
+  if (error) {
+    console.error("[notifications] настройки не загружены", error.code);
+    return null;
+  }
+  return { reply: data?.reply ?? true, newEpisode: data?.new_episode ?? true };
 }

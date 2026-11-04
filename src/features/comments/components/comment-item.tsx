@@ -26,7 +26,7 @@ const dateFormat = new Intl.DateTimeFormat("ru-RU", {
 });
 
 /** «5 минут назад» до суток, дальше — дата. Время сервера и браузера может разойтись — без предупреждения гидратации. */
-function formatWhen(iso: string): string {
+export function formatWhen(iso: string): string {
   const diff = (Date.now() - Date.parse(iso)) / 1000;
   const relative = new Intl.RelativeTimeFormat("ru", { numeric: "auto" });
   if (diff < 60) return "только что";

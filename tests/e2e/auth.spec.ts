@@ -102,7 +102,7 @@ test.describe("Аккаунты", () => {
     await input(page, "Ник").fill(renamed);
     await input(page, "Имя (необязательно)").fill("Сакура");
     await page.getByRole("button", { name: "Сохранить" }).click();
-    await expect(status(page)).toHaveText("Профиль сохранён.");
+    await expect(status(page).filter({ hasText: "Профиль сохранён." })).toHaveText("Профиль сохранён.");
     await expect(header(page).getByRole("link", { name: renamed })).toBeVisible();
 
     await input(page, "Ник").fill(other.username);

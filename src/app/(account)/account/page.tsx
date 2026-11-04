@@ -14,6 +14,8 @@ import { ProfileForm } from "@/features/auth/components/profile-form";
 import { UserAvatar } from "@/features/auth/components/user-avatar";
 import { getCurrentProfile } from "@/features/auth/session";
 import { MyList } from "@/features/list/components/my-list";
+import { NotificationPrefsForm } from "@/features/notifications/components/notification-prefs-form";
+import { getNotificationPrefs } from "@/features/notifications/queries";
 import { ContinueWatching } from "@/features/progress/components/continue-watching";
 
 export const metadata: Metadata = {
@@ -88,6 +90,19 @@ async function AccountContent() {
   );
 }
 
+/** Переключатели уведомлений: нет строки notification_prefs — всё включено; ошибка — сообщение вместо формы. */
+async function NotificationSettings() {
+  const prefs = await getNotificationPrefs();
+  if (!prefs) {
+    return (
+      <p role="alert" className="text-sm text-destructive">
+        Не удалось загрузить настройки уведомлений
+      </p>
+    );
+  }
+  return <NotificationPrefsForm initial={prefs} />;
+}
+
 function AccountSkeleton() {
   return (
     <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]" aria-hidden>
@@ -109,6 +124,22 @@ export default function AccountPage() {
             <AccountContent />
           </Suspense>
         </div>
+
+        <section aria-labelledby="notification-prefs-heading" className="mt-6 rounded-2xl border border-border/70 bg-card/60 p-6 sm:p-8">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h2 id="notification-prefs-heading" className="font-heading text-lg font-semibold">
+              Уведомления
+            </h2>
+            <Link href="/notifications" className={`${authLinkClass} text-sm`}>
+              Все уведомления
+            </Link>
+          </div>
+          <div className="mt-5">
+            <Suspense fallback={<Skeleton aria-hidden className="h-20 rounded-xl" />}>
+              <NotificationSettings />
+            </Suspense>
+          </div>
+        </section>
 
         <Suspense fallback={null}>
           <div className="mt-12 empty:hidden">

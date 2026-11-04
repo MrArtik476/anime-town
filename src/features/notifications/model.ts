@@ -18,6 +18,9 @@ export type NotificationItem = {
   read: boolean;
 };
 
+/** Настройки получателя (notification_prefs); нет строки — всё включено. */
+export type NotificationPrefs = { reply: boolean; newEpisode: boolean };
+
 export const PAGE_SIZE = 20;
 
 /** Бейдж колокольчика: 0 — без бейджа, от 10 — «9+». */
