@@ -2,7 +2,7 @@
 
 > **Принцип (ADR-017, 2026-11-01):** до последнего этапа всё разрабатывается и проверяется **локально**
 > (`npm run dev`, локальная production-сборка `npm run build && npm run start`) ; проверка перед слиянием — `npm run verify` и хук pre-push, ежедневный перевод — Supabase Cron + Edge Function (ADR-024).
-> GitHub — только git и PR (решение владельца 2026-11-04): GitHub Actions не используется, `.github/` удалена (PR #30); проверки — `npm run verify` + pre-push, расписание — Supabase Cron.
+> GitHub — только git и PR (решение владельца 2026-11-04): `.github/` удалена (PR #30); проверки — `npm run verify` + pre-push, расписание — Supabase Cron.
 > Хостинга нет. Vercel не используется: регистрация из Беларуси недоступна. Хостинг выбирается на этапе 8 «Публикация».
 
 ## Этап 0. Среда разработки — ✅ закрыт
@@ -28,7 +28,7 @@
 - [x] Supabase-проект, первая миграция, генерация типов (`src/types/database.ts`, `npm run db:types`)
 - [x] Дизайн-система v0: токены и базовые компоненты в Obsidian `03 - Дизайн-система`
 - [x] Playwright E2E (`tests/e2e`, `test:e2e`) и unit-тесты Vitest (`test`)
-- [x] Проверки перед слиянием: локальный `npm run verify` (lint, typecheck, functions:check, unit, build, E2E с моками) + хук pre-push; CI на GitHub Actions удалён 2026-11-04
+- [x] Проверки перед слиянием: локальный `npm run verify` (lint, typecheck, functions:check, unit, build, E2E с моками) + хук pre-push
 - [x] ~~Деплой-превью на Vercel~~ — отменено (ADR-017); проверка PR — `npm run verify` (в т. ч. production-сборка)
 - → `proxy.ts` для обновления сессии перенесён в этап 3 (делается вместе с авторизацией)
 
@@ -46,7 +46,7 @@
 - [x] Скорость переходов (ADR-019): кэш страницы тайтла, prefetch по наведению, шапка тайтла из карточки, CSS вместо Motion (−40 КБ gzip), следующая страница каталога заранее (PR #12)
 
 **Хвосты каталога** (не блокируют следующие этапы):
-- [x] Секреты ежедневного перевода — в Supabase (секреты Edge Function, Vault), перевод — Supabase Cron (ADR-024); GitHub Secrets не используются
+- [x] Секреты ежедневного перевода — в Supabase (секреты Edge Function, Vault), перевод — Supabase Cron (ADR-024); локально — `.env.local`
 - [ ] `SUPABASE_SERVICE_ROLE_KEY` в `.env.local`  — сейчас там publishable-ключ, нужен secret key `sb_secret_…`; живой прогон 2026-11-01 потратил 724 символа и не сохранил перевод, после PR #11 такой ключ останавливает заполнение до DeepL — **нужен владелец**
 - [ ] Провайдер Yandex как запасной (если DeepL станет недоступен)
 - [ ] Перевод тайтлов вне трендовых и популярных (например, по просмотрам) — когда появится статистика

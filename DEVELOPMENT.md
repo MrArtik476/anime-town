@@ -198,7 +198,7 @@ npm run build && npm run start      # http://localhost:3000
        from net._http_response order by created desc limit 5;
      ```
      Признаки сбоя: в журнале нет строки за сегодня после 03:17 UTC при `succeeded` в `cron.job_run_details` → смотреть `net._http_response` (401 — разошёлся `CRON_SECRET`; 5xx или `timed_out` — функция упала, логи: Dashboard → Edge Functions → translate-cron → Logs); `failed` в `cron.job_run_details` — ошибка SQL задания; задание не запускалось вовсе — `select jobname, schedule, active from cron.job where jobname = 'translate-cron'`.
-4. **GitHub Actions не используется:** прежний `translate-cron.yml` удалён 2026-11-04; расписание — только Supabase Cron.
+4. **Расписание — только Supabase Cron** (задание `translate-cron`, см. выше); других планировщиков у проекта нет.
 5. Ручной запуск без функции — скрипт пишет прямо в Supabase (тот же журнал и блокировка, `trigger = manual`):
    ```bash
    npm run translate -- --limit 5   # 1–100 тайтлов; без --limit — все кандидаты (≤ 100)
@@ -247,7 +247,7 @@ npm run build && npm run start      # http://localhost:3000
 - Не удалять `main` ни локально, ни на GitHub.
 
 ## Секреты
-- Локально — `.env.local`; для Edge Function `translate-cron` — секреты функции Supabase (Dashboard → Edge Functions → Secrets) и Vault (`translate_cron_secret` для pg_cron), см. «Машинный перевод»; GitHub Secrets не используются; на хостинге — его переменные окружения (этап 8).
+- Локально — `.env.local`; для Edge Function `translate-cron` — секреты функции Supabase (Dashboard → Edge Functions → Secrets) и Vault (`translate_cron_secret` для pg_cron), см. «Машинный перевод»; на хостинге — его переменные окружения (этап 8).
 - В коде и тестах — только фиктивные значения (`tests/e2e/constants.ts`); CI секретов не получает.
 - Токен Obsidian MCP — переменная окружения пользователя Windows `OBSIDIAN_MCP_TOKEN`; в файлах только ссылка `${OBSIDIAN_MCP_TOKEN}`.
 - Перед коммитом: `git diff --cached` не должен содержать ключей (проверка в skill `anime-quality-check`).

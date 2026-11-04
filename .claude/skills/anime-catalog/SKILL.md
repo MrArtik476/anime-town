@@ -12,7 +12,7 @@ description: Use when working on the Anime Town catalog — listing, search, fil
 ## Синхронизация
 - `src/features/catalog/anilist-sync.ts`: постраничная выборка `Page(page, perPage: 50) { media(type: ANIME, sort: ...) }`, upsert по `anilist_id`.
 - Поля: `id`, `idMal`, `title { romaji english native }`, `synonyms`, `description(asHtml:false)`, `coverImage { extraLarge large color }`, `bannerImage`, `format`, `status`, `season`, `seasonYear`, `episodes`, `duration`, `genres`, `averageScore`, `popularity`, `nextAiringEpisode`, `startDate`.
-- Запуск по расписанию — Supabase Cron → Edge Function (как `translate-cron`, ADR-024); вручную — скрипт `scripts/*.ts` (`tsx`), как `npm run translate`, или Route Handler под секретом. GitHub Actions не используется. Пауза между страницами, обработка 429 с повтором.
+- Запуск по расписанию — Supabase Cron → Edge Function (как `translate-cron`, ADR-024); вручную — скрипт `scripts/*.ts` (`tsx`), как `npm run translate`, или Route Handler под секретом. Пауза между страницами, обработка 429 с повтором.
 - Русские названия/описания — свои поля в `anime` (`title_ru`, `description_ru`), заполняются вручную/из админки, синхронизация их не затирает.
 - Slug: транслит/romaji + `anilist_id` для уникальности.
 
