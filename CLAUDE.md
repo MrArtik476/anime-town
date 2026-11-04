@@ -24,7 +24,7 @@ Skills меняются в `Buld/.claude/skills/`, после чего копи�
 - Supabase: Postgres, Auth, Storage, RLS; клиент `@supabase/ssr`
 - AniList GraphQL API — метаданные; HLS.js — воспроизведение
 - Playwright, ESLint **9** (flat config; 10 несовместим с плагинами eslint-config-next), `tsc --noEmit`
-- Хостинга нет до этапа 8 «Публикация» (ADR-017): разработка и проверка — локально (`npm run verify` + хук pre-push; GitHub Actions недоступен), ежедневный перевод — Supabase Cron (ADR-024); Vercel не используется (регистрация из Беларуси недоступна). Node.js ≥ 20.9
+- Хостинга нет до этапа 8 «Публикация» (ADR-017): разработка и проверка — локально (`npm run verify` + хук pre-push; GitHub — только git и PR, без Actions), ежедневный перевод — Supabase Cron (ADR-024); Vercel не используется (регистрация из Беларуси недоступна). Node.js ≥ 20.9
 - Точные версии — DEVELOPMENT.md → «Версии пакетов».
 
 ## Next.js: AGENTS.md
@@ -33,12 +33,12 @@ Skills меняются в `Buld/.claude/skills/`, после чего копи�
 Next.js 16 отличается от того, что в памяти модели: перед кодом на Next.js читай актуальные гайды в `node_modules/next/dist/docs/` и/или Context7. В частности, `middleware.ts` переименован в `proxy.ts`. Блок в `AGENTS.md` поддерживает `next dev` — не редактировать вручную.
 
 ## Структура кода
-`src/app` — маршруты · `src/components/{ui,layout,anime,home,catalog,anime-details,motion,providers}` — компоненты (ui — только shadcn) · `src/config` — конфигурация сайта · `src/hooks` — хуки · `src/lib` — `anilist/` (клиент и запросы AniList), `anime/` (маппинг, форматирование, параметры каталога), `rate-limit/` (лимит запросов каталога по IP, используется в `src/proxy.ts`), `shikimori/` (клиент Shikimori), `localization/` (русские названия и описания, хранилище, переводчик: `translators/deepl.ts`, бюджет, фоновое заполнение `backfill.ts` и общий код запуска `backfill-run.ts`), `supabase/` (в т. ч. `admin.ts` — service role, только сервер), `utils.ts` · `src/features/auth` — аккаунты (Server Actions, сессия `getClaims`, формы, `UserMenu`) · `src/features/list` — личный список (статус и оценка, `anime_list`) · `src/types` — типы (в т. ч. `database.ts`) · `scripts/` — скрипты Node (`translate-backfill.ts`, `verify.mjs`, `build-edge-functions.mjs`) · `supabase/functions/translate-cron/` — Edge Function фонового перевода (исходник `main.ts`, деплоится собранный `index.js`) · `.github/workflows/` — CI и ручной перевод (не запускаются: Actions недоступен). Подробно — ARCHITECTURE.md §2.
+`src/app` — маршруты · `src/components/{ui,layout,anime,home,catalog,anime-details,motion,providers}` — компоненты (ui — только shadcn) · `src/config` — конфигурация сайта · `src/hooks` — хуки · `src/lib` — `anilist/` (клиент и запросы AniList), `anime/` (маппинг, форматирование, параметры каталога), `rate-limit/` (лимит запросов каталога по IP, используется в `src/proxy.ts`), `shikimori/` (клиент Shikimori), `localization/` (русские названия и описания, хранилище, переводчик: `translators/deepl.ts`, бюджет, фоновое заполнение `backfill.ts` и общий код запуска `backfill-run.ts`), `supabase/` (в т. ч. `admin.ts` — service role, только сервер), `utils.ts` · `src/features/auth` — аккаунты (Server Actions, сессия `getClaims`, формы, `UserMenu`) · `src/features/list` — личный список (статус и оценка, `anime_list`) · `src/types` — типы (в т. ч. `database.ts`) · `scripts/` — скрипты Node (`translate-backfill.ts`, `verify.mjs`, `build-edge-functions.mjs`) · `supabase/functions/translate-cron/` — Edge Function фонового перевода (исходник `main.ts`, деплоится собранный `index.js`). Подробно — ARCHITECTURE.md §2.
 
 ## Обязательные правила
 1. Перед использованием API библиотеки — свериться с актуальной документацией через **Context7**, не полагаться на память.
 2. Перед работой с БД — skill `anime-database` + `supabase:supabase-postgres-best-practices`. Каждая таблица с пользовательскими данными — с RLS.
-3. Никогда не коммитить секреты. Реальные значения — только в `.env.local` (в `.gitignore`), GitHub Secrets и Supabase. Пример — `.env.example`.
+3. Никогда не коммитить секреты. Реальные значения — только в `.env.local` (в `.gitignore`) и Supabase (секреты Edge Functions, Vault). Пример — `.env.example`.
 4. `SUPABASE_SERVICE_ROLE_KEY` — только на сервере (Route Handlers / Server Actions), никогда в клиентских компонентах.
 5. Видео: только контент, на который есть права (собственный, лицензированный, открытая лицензия). Не добавлять парсеры, встраивание или проксирование пиратских источников.
 6. Перед словами «готово/работает» — запустить проверки (skill `anime-quality-check`, `superpowers:verification-before-completion`) и показать вывод.
@@ -61,7 +61,7 @@ Claude работает самостоятельно в пределах зад�
 - Слияние PR — только после отдельного, явного разрешения пользователя на конкретный PR.
 - Установка пакетов, которых нет в таблице версий, или смена мажорной версии.
 - Миграции и SQL на удалённом (не локальном) Supabase-проекте; создание проектов и платных ресурсов.
-- Деплой на хостинг (только этап 8), изменение переменных окружения на хостинге, в GitHub Secrets и Supabase.
+- Деплой на хостинг (только этап 8), изменение переменных окружения на хостинге и в Supabase.
 - Удаление файлов, которые Claude не создавал в текущей задаче; удаление или переименование заметок Obsidian.
 - Изменение `.claude/`, `.mcp.json`, CI-конфигурации, настроек хуков и прав.
 - Любые действия вне `Anime Town\` и вне `Anime Town/` в Obsidian.
@@ -69,6 +69,7 @@ Claude работает самостоятельно в пределах зад�
 ### ⛔ Никогда
 - `git push --force`, `git reset --hard` по опубликованной истории, переписывание истории `main`.
 - Коммиты и push напрямую в `main` в обход ветки задачи и PR; удаление `main` локально или на GitHub.
+- Создавать файлы в `.github/` (workflows, Actions), использовать GitHub Pages, Secrets, Codespaces. GitHub — только git и PR.
 - `--no-verify`, отключение линтера/тестов/хуков ради «зелёной» проверки, подгонка тестов под баг.
 - Коммит `.env*` (кроме `.env.example`), токенов, ключей, дампов БД с пользовательскими данными.
 - Вывод значений секретов (в том числе `OBSIDIAN_MCP_TOKEN`) в чат, логи, заметки или коммиты.
@@ -119,7 +120,7 @@ Claude обязан работать через отдельную ветку з
 | Этап плана | `Anime Town/09 - Roadmap/Этапы/` | `Этап 5 · Сообщество.md` | тег `этап` |
 | Фича | `Anime Town/08 - Функциональность/Фичи/` | `Фича · Каталог.md` | тег `фича` |
 | Таблица БД, Storage, RLS | `Anime Town/06 - База данных/Таблицы/` | `Таблица · anime_list.md`, `Storage · avatars.md` | тег `таблица` |
-| Внешний API / сервис | `Anime Town/07 - API и интеграции/` | `AniList GraphQL.md`, `Shikimori GraphQL.md`, `DeepL API.md`, `Supabase.md`, `GitHub Actions.md`, `Инструменты агентов.md` | тег `интеграция` |
+| Внешний API / сервис | `Anime Town/07 - API и интеграции/` | `AniList GraphQL.md`, `Shikimori GraphQL.md`, `DeepL API.md`, `Supabase.md`, `Инструменты агентов.md` | тег `интеграция` |
 
 Разделы `Архитектура`, `Ошибки и решения`, `История изменений`, `Roadmap`, `Функциональность`, `База данных`, `API и интеграции` — оглавления со ссылками на эти заметки.
 
