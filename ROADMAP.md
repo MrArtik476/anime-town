@@ -2,7 +2,7 @@
 
 > **Принцип (ADR-017, 2026-11-01):** до последнего этапа всё разрабатывается и проверяется **локально**
 > (`npm run dev`, локальная production-сборка `npm run build && npm run start`) ; проверка перед слиянием — `npm run verify` и хук pre-push, ежедневный перевод — Supabase Cron + Edge Function (ADR-024).
-> GitHub Actions для аккаунта недоступен окончательно (2026-11-02): workflow оставлены в репозитории, но не запускаются.
+> GitHub — только git и PR (решение владельца 2026-11-04): GitHub Actions не используется, `.github/` удалена (PR #30); проверки — `npm run verify` + pre-push, расписание — Supabase Cron.
 > Хостинга нет. Vercel не используется: регистрация из Беларуси недоступна. Хостинг выбирается на этапе 8 «Публикация».
 
 ## Этап 0. Среда разработки — ✅ закрыт
@@ -28,8 +28,8 @@
 - [x] Supabase-проект, первая миграция, генерация типов (`src/types/database.ts`, `npm run db:types`)
 - [x] Дизайн-система v0: токены и базовые компоненты в Obsidian `03 - Дизайн-система`
 - [x] Playwright E2E (`tests/e2e`, `test:e2e`) и unit-тесты Vitest (`test`)
-- [x] CI (GitHub Actions, `.github/workflows/ci.yml`): lint + typecheck + unit + build, E2E с моками — отдельной job, на каждый push в `main` и PR — с 2026-11-02 не запускается (Actions недоступен), заменён локальным `npm run verify`
-- [x] ~~Деплой-превью на Vercel~~ — отменено (ADR-017); проверка PR — CI + локальная production-сборка
+- [x] Проверки перед слиянием: локальный `npm run verify` (lint, typecheck, functions:check, unit, build, E2E с моками) + хук pre-push; CI на GitHub Actions удалён 2026-11-04
+- [x] ~~Деплой-превью на Vercel~~ — отменено (ADR-017); проверка PR — `npm run verify` (в т. ч. production-сборка)
 - → `proxy.ts` для обновления сессии перенесён в этап 3 (делается вместе с авторизацией)
 
 ## Этап 2. Каталог (MVP-чтение) — ✅ закрыт
@@ -41,12 +41,12 @@
 - [x] Укрепление каталога: лимит запросов по IP в `proxy.ts` (429 + `Retry-After`), клиент AniList с бюджетом ожидания ≤ 12 с, сортировка «В тренде», обложки без оптимизатора изображений, код `INVALID_PARAMS` в API, очистка описаний от сущностей и хвостов источников
 - [x] Русский контент: названия и описания с Shikimori (сопоставление по MAL id, атрибуция), таблица `anime_localizations` с RLS, поиск на кириллице через Shikimori
 - [x] Машинный перевод DeepL: провайдер за интерфейсом `Translator`, бюджет по `/v2/usage` (свой предел 450 000), пометка «Машинный перевод (DeepL)» (PR #7)
-- [x] Фоновый перевод без сервера (ADR-017): `npm run translate [-- --limit N]` и GitHub Actions `translate-cron.yml` раз в сутки; `/api/cron/translate` — ручной запуск под `CRON_SECRET`. С 2026-11-02 расписание — Supabase Cron + Edge Function `translate-cron` (ADR-024)
+- [x] Фоновый перевод без сервера (ADR-017): `npm run translate [-- --limit N]`; `/api/cron/translate` — ручной запуск под `CRON_SECRET`. С 2026-11-02 расписание — Supabase Cron + Edge Function `translate-cron` (ADR-024)
 
 - [x] Скорость переходов (ADR-019): кэш страницы тайтла, prefetch по наведению, шапка тайтла из карточки, CSS вместо Motion (−40 КБ gzip), следующая страница каталога заранее (PR #12)
 
 **Хвосты каталога** (не блокируют следующие этапы):
-- [x] Секреты GitHub Actions для ежедневного перевода добавлены владельцем (2026-11-01); Actions так и не разблокирован — перевод перенесён в Supabase Cron (ADR-024), секреты теперь в Supabase
+- [x] Секреты ежедневного перевода — в Supabase (секреты Edge Function, Vault), перевод — Supabase Cron (ADR-024); GitHub Secrets не используются
 - [ ] `SUPABASE_SERVICE_ROLE_KEY` в `.env.local`  — сейчас там publishable-ключ, нужен secret key `sb_secret_…`; живой прогон 2026-11-01 потратил 724 символа и не сохранил перевод, после PR #11 такой ключ останавливает заполнение до DeepL — **нужен владелец**
 - [ ] Провайдер Yandex как запасной (если DeepL станет недоступен)
 - [ ] Перевод тайтлов вне трендовых и популярных (например, по просмотрам) — когда появится статистика

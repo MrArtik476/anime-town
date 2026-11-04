@@ -2,7 +2,7 @@ import type { BackfillReport, BackfillStopReason } from "./backfill";
 
 /**
  * Общее для двух способов запуска фонового заполнения: Route Handler `/api/cron/translate` (ручной запуск)
- * и скрипт `npm run translate` (GitHub Actions по расписанию, локально). Сама работа — `runTranslationBackfill`.
+ * и скрипт `npm run translate` (локально). По расписанию — Edge Function `translate-cron` (ADR-024). Сама работа — `runTranslationBackfill`.
  */
 
 /** Больше 100 кандидатов за запуск не бывает (50 трендовых + 50 популярных). */
@@ -56,34 +56,4 @@ const FAILURES: ReadonlySet<BackfillStopReason> = new Set<BackfillStopReason>([
 
 export function isBackfillFailure(report: BackfillReport): boolean {
   return report.stopped !== null && FAILURES.has(report.stopped);
-}
-
-const formatNumber = (value: number) => value.toLocaleString("ru-RU");
-
-/** Сводка в Markdown для GitHub Actions (`$GITHUB_STEP_SUMMARY`): только счётчики, без текстов и ключей. */
-export function formatBackfillSummary(report: BackfillReport): string {
-  const usage = report.usage;
-  // Расход до запуска = после минус учтённые символы этого запуска.
-  const usageLine = usage
-    ? `${formatNumber(usage.used - report.characters)} → ${formatNumber(usage.used)} из ${formatNumber(usage.limit)} (свой предел ${formatNumber(usage.ownLimit)})`
-    : "нет данных";
-  const rows: [string, string][] = [
-    ["Переводчик", report.translator ?? "не настроен"],
-    ["Кандидаты", String(report.candidates)],
-    ["Нужен перевод", String(report.pending)],
-    ["Переведено", String(report.translated)],
-    ["Символов за запуск", formatNumber(report.characters)],
-    ["Пачек", String(report.batches)],
-    ["Пропущено (слишком длинные)", String(report.skippedOversized)],
-    ["Расход символов: до → после", usageLine],
-    ["Остановка", report.stopped ?? "—"],
-  ];
-  return [
-    `### Машинный перевод: ${isBackfillFailure(report) ? "❌ сбой" : "✅ готово"}`,
-    "",
-    "| Показатель | Значение |",
-    "|---|---|",
-    ...rows.map(([name, value]) => `| ${name} | ${value} |`),
-    "",
-  ].join("\n");
 }

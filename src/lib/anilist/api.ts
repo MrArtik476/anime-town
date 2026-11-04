@@ -172,7 +172,7 @@ export async function getAnimeById(id: number): Promise<AniListResult<AnimeDetai
 /**
  * Срок жизни страницы тайтла с переводом. stale ≥ 5 минут — клиентский роутер переиспользует её при повторных
  * переходах без запроса к серверу. revalidate 10 минут — перевод, записанный фоновым заполнением
- * (GitHub Actions, другой процесс), появляется на странице не позже чем через 10 минут; ручной запуск
+ * (Edge Function `translate-cron`, другой процесс), появляется на странице не позже чем через 10 минут; ручной запуск
  * /api/cron/translate сбрасывает тег `localization` сразу.
  */
 const LOCALIZED_ANIME_LIFE = { stale: 300, revalidate: 600, expire: 86_400 };
