@@ -444,6 +444,195 @@ try {
   const parallel = await Promise.all(Array.from({ length: 6 }, () => insertComment(D.client, {})));
   check("6 параллельных вставок — ровно 5 успешных", parallel.filter((r) => !r.error).length === 5, parallel.map(code).join(","));
 
+  // ---- уведомления: создают только триггеры, клиент читает свои и меняет только read_at (ADR-026) ----
+  // Свежие пользователи: у A/B выше уже много комментариев, флуд-лимит не должен мешать ответам.
+  // Серии 1 и 2 вставлены выше, до того как получатели добавили тайтл в список, — уведомлений по ним нет.
+  const NA = await makeUser("na");
+  const NB = await makeUser("nb");
+  const NC = await makeUser("nc");
+  // Уведомления получателя по тайтлу пробы (admin видит всё; при ошибке data — undefined, проверки падают).
+  const notesOf = async (userId, type) => {
+    const response = await admin
+      .from("notifications")
+      .select("id, type, episode_number, comment_id, created_at, read_at")
+      .eq("user_id", userId)
+      .eq("anilist_id", PROBE_ANIME_ID)
+      .eq("type", type)
+      .order("id");
+    return response.error ? { rows: undefined, error: response.error.code } : { rows: response.data, error: null };
+  };
+  const notesDetail = (notes) => notes.error ?? `строк: ${notes.rows.length}, номера: ${notes.rows.map((row) => row.episode_number).join(",")}`;
+  const addEpisodes = async (numbers, licenseStatus = "own") => {
+    const { data, error } = await admin
+      .from("episodes")
+      .insert(numbers.map((number) => ({ anilist_id: PROBE_ANIME_ID, number, license_status: licenseStatus, hls_url: "/media/test/master.m3u8" })))
+      .select("id, number");
+    if (error) throw new Error(`episodes ${numbers.join(",")}: ${error.message}`);
+    return data;
+  };
+  const watch = async (user) => {
+    const { error } = await user.client
+      .from("anime_list")
+      .insert({ user_id: user.id, anilist_id: PROBE_ANIME_ID, status: "watching", title: "Проба", cover_url: COVER });
+    if (error) throw new Error(`anime_list ${user.id.slice(0, 8)}: ${error.message}`);
+  };
+
+  // Ответы. NB отвечает в ветке NA с @NA: автор корня и reply_to совпадают — одно уведомление.
+  const naRoot = await insertComment(NA.client, {});
+  if (naRoot.error) throw new Error(`comment NA: ${naRoot.error.message}`);
+  const nbReply = await insertComment(NB.client, { parent_id: naRoot.data.id, reply_to_user_id: NA.id });
+  const replyNotes = await notesOf(NA.id, "reply");
+  const replyToA = replyNotes.rows?.filter((row) => row.comment_id === nbReply.data?.id).length;
+  check("ответ B создал уведомление A", !nbReply.error && replyToA === 1, `${code(nbReply)} / ${replyNotes.error ?? `уведомлений: ${replyToA}`}`);
+  const naSelfReply = await insertComment(NA.client, { parent_id: naRoot.data.id });
+  const selfNotes = await admin.from("notifications").select("id").eq("comment_id", naSelfReply.data?.id ?? 0);
+  check(
+    "ответ себе — без уведомления",
+    !naSelfReply.error && !selfNotes.error && selfNotes.data?.length === 0,
+    `${code(naSelfReply)} / ${rows(selfNotes)}`,
+  );
+  // У NB тоже есть уведомление (для проверки «A не видит уведомления B»).
+  const nbRoot = await insertComment(NB.client, {});
+  if (nbRoot.error) throw new Error(`comment NB: ${nbRoot.error.message}`);
+  await insertComment(NA.client, { parent_id: nbRoot.data.id });
+
+  // Настройки: NA — всё включено (своя строка есть), NB выключает новые серии.
+  const naPrefs = await NA.client.from("notification_prefs").upsert({ reply: true, new_episode: true }, { onConflict: "user_id" }).select("user_id");
+  const nbPrefs = await NB.client.from("notification_prefs").upsert({ reply: true, new_episode: false }, { onConflict: "user_id" }).select("user_id");
+
+  // Новые серии. NA и NB держат тайтл в «Смотрю»; NC добавит его позже — для пакетной вставки.
+  await watch(NA);
+  await watch(NB);
+  await addEpisodes([3]);
+  await addEpisodes([4]);
+  const afterTwo = await notesOf(NA.id, "new_episode");
+  check(
+    "2 серии подряд — одно непрочитанное, номер последней",
+    afterTwo.rows?.length === 1 && afterTwo.rows[0].episode_number === 4 && afterTwo.rows[0].read_at === null,
+    notesDetail(afterTwo),
+  );
+
+  // Серия без прав не уведомляет; стала видимой (none → own) — то же непрочитанное с её номером.
+  const [ep5] = await addEpisodes([5], "none");
+  const afterNone = await notesOf(NA.id, "new_episode");
+  const { error: ep5Error } = await admin.from("episodes").update({ license_status: "own" }).eq("id", ep5.id);
+  if (ep5Error) throw new Error(`episode 5 → own: ${ep5Error.message}`);
+  const afterVisible = await notesOf(NA.id, "new_episode");
+  check(
+    "серия без прав не уведомляет, стала видимой (none → own) — то же уведомление с её номером",
+    afterNone.rows?.length === 1 &&
+      afterNone.rows[0].episode_number === 4 &&
+      afterVisible.rows?.length === 1 &&
+      afterVisible.rows[0].id === afterNone.rows[0].id &&
+      afterVisible.rows[0].episode_number === 5,
+    `${notesDetail(afterNone)} → ${notesDetail(afterVisible)}`,
+  );
+
+  await watch(NC);
+  await addEpisodes([6, 7, 8]);
+  const batchNC = await notesOf(NC.id, "new_episode");
+  const batchNA = await notesOf(NA.id, "new_episode");
+  check(
+    "пакетная вставка 3 серий одним insert — одно уведомление с номером последней",
+    batchNC.rows?.length === 1 && batchNC.rows[0].episode_number === 8 && batchNA.rows?.length === 1 && batchNA.rows[0].episode_number === 8,
+    `NC ${notesDetail(batchNC)}; NA ${notesDetail(batchNA)}`,
+  );
+
+  // Повторный upsert видимой серии (как seed:test-episodes) — update-триггер, но own → own ничего не создаёт.
+  const snapshot = (notes) => JSON.stringify(notes.rows);
+  const beforeUpsert = [await notesOf(NA.id, "new_episode"), await notesOf(NC.id, "new_episode")];
+  const { error: upsertError } = await admin
+    .from("episodes")
+    .upsert({ anilist_id: PROBE_ANIME_ID, number: 8, license_status: "own", hls_url: "/media/test/master.m3u8" }, { onConflict: "anilist_id,number" });
+  if (upsertError) throw new Error(`episode 8 upsert: ${upsertError.message}`);
+  const afterUpsert = [await notesOf(NA.id, "new_episode"), await notesOf(NC.id, "new_episode")];
+  check(
+    "повторный upsert own→own — без новых",
+    beforeUpsert.every((notes) => notes.rows?.length === 1) && afterUpsert.every((notes, i) => !notes.error && snapshot(notes) === snapshot(beforeUpsert[i])),
+    afterUpsert.map(notesDetail).join("; "),
+  );
+
+  // Прочитать (клиентом NA) — следующая серия создаёт новую строку.
+  const readEpisode = await NA.client
+    .from("notifications")
+    .update({ read_at: new Date().toISOString() })
+    .eq("id", afterUpsert[0].rows?.[0]?.id ?? 0)
+    .select("id");
+  await addEpisodes([9]);
+  const afterRead = await notesOf(NA.id, "new_episode");
+  check(
+    "после прочтения новая серия — новая строка",
+    readEpisode.data?.length === 1 &&
+      afterRead.rows?.length === 2 &&
+      afterRead.rows[0].read_at !== null &&
+      afterRead.rows[1].read_at === null &&
+      afterRead.rows[1].episode_number === 9,
+    `${rows(readEpisode)} / ${notesDetail(afterRead)}`,
+  );
+
+  // NB выключил новые серии: те же события дали уведомления NA и NC, а NB — ничего.
+  const nbEpisodes = await notesOf(NB.id, "new_episode");
+  check(
+    "настройка выключена — уведомления нет",
+    nbPrefs.data?.length === 1 && nbEpisodes.rows?.length === 0 && afterRead.rows?.length === 2,
+    `${rows(nbPrefs)} / ${notesDetail(nbEpisodes)}`,
+  );
+
+  // Доступ клиента.
+  const nbAllNotes = await admin.from("notifications").select("id").eq("user_id", NB.id);
+  const naSeesB = await NA.client.from("notifications").select("id").eq("user_id", NB.id);
+  const naSeesOwn = await NA.client.from("notifications").select("id, user_id");
+  check(
+    "A не видит уведомления B",
+    nbAllNotes.data?.length >= 1 &&
+      !naSeesB.error &&
+      naSeesB.data?.length === 0 &&
+      naSeesOwn.data?.length >= 1 &&
+      naSeesOwn.data.every((row) => row.user_id === NA.id),
+    `у B ${rows(nbAllNotes)} / A про B ${rows(naSeesB)} / A свои ${rows(naSeesOwn)}`,
+  );
+  const forgedNote = await NA.client.from("notifications").insert({ user_id: NA.id, type: "new_episode", anilist_id: PROBE_ANIME_ID, episode_number: 1 });
+  check("A не вставляет уведомление", forgedNote.error?.code === "42501", code(forgedNote));
+
+  const replyNoteId = replyNotes.rows?.[0]?.id ?? 0;
+  const readReply = await NA.client.from("notifications").update({ read_at: new Date().toISOString() }).eq("id", replyNoteId).select("id, read_at");
+  const forbidden = [];
+  for (const [column, value] of [
+    ["episode_number", 42],
+    ["type", "new_episode"],
+    ["user_id", NB.id],
+    ["read_at", null],
+  ]) {
+    const response = await NA.client.from("notifications").update({ [column]: value }).eq("id", replyNoteId).select("id");
+    forbidden.push(`${column}: ${code(response)}`);
+  }
+  check(
+    "A меняет только read_at",
+    readReply.data?.length === 1 && readReply.data[0].read_at !== null && forbidden.every((line) => line.endsWith(": 42501")),
+    `read_at ${rows(readReply)}; ${forbidden.join(", ")}`,
+  );
+
+  const nbPrefsRow = await admin.from("notification_prefs").select("new_episode").eq("user_id", NB.id);
+  const naReadsB = await NA.client.from("notification_prefs").select("user_id").eq("user_id", NB.id);
+  const naReadsOwn = await NA.client.from("notification_prefs").select("user_id");
+  check(
+    "A не читает настройки B",
+    nbPrefsRow.data?.length === 1 &&
+      !naReadsB.error &&
+      naReadsB.data?.length === 0 &&
+      naPrefs.data?.length === 1 &&
+      naReadsOwn.data?.length === 1 &&
+      naReadsOwn.data[0].user_id === NA.id,
+    `у B ${rows(nbPrefsRow)} / A про B ${rows(naReadsB)} / A свои ${rows(naReadsOwn)}`,
+  );
+  const naEditsB = await NA.client.from("notification_prefs").update({ new_episode: true }).eq("user_id", NB.id).select("user_id");
+  const nbPrefsAfter = await admin.from("notification_prefs").select("new_episode").eq("user_id", NB.id).single();
+  check(
+    "A не меняет настройки B",
+    !naEditsB.error && naEditsB.data?.length === 0 && nbPrefsAfter.data?.new_episode === false,
+    `${rows(naEditsB)} / у B new_episode ${nbPrefsAfter.data?.new_episode ?? code(nbPrefsAfter)}`,
+  );
+
   // ---- anime_localizations: пишет только service role ----
   const trUser = await A.client.from("anime_localizations").update({ title_ru: "x" }).eq("anilist_id", 1).select("anilist_id");
   check("пользователь не меняет переводы", blocked(trUser), rows(trUser));
@@ -517,11 +706,20 @@ try {
     .from("comments")
     .select("id", { count: "exact", head: true })
     .eq("anilist_id", PROBE_ANIME_ID);
-  const leftover = [profilesLeft, filesLeft, episodesLeft, commentsLeft];
+  const notificationsLeftResponse = await admin
+    .from("notifications")
+    .select("id", { count: "exact" })
+    .eq("anilist_id", PROBE_ANIME_ID)
+    .limit(1);
+  // До применения миграции уведомлений таблицы нет (PGRST205) — остатка в ней быть не может.
+  // Не head: на HEAD отсутствующая таблица отвечает 204 без кода ошибки.
+  const notificationsMissing = notificationsLeftResponse.error?.code === "PGRST205";
+  const notificationsLeft = notificationsMissing ? 0 : notificationsLeftResponse.count;
+  const leftover = [profilesLeft, filesLeft, episodesLeft, commentsLeft, notificationsLeft];
   // Ненулевой (или не прочитанный) остаток — ⚠️, и прогон падает: временные данные не должны копиться в проекте.
   const clean = leftover.every((count) => count === 0);
   results.push(
-    `${clean ? "🧹" : "⚠️"} осталось: профилей ${profilesLeft ?? "—"}, файлов аватаров ${filesLeft}, временных серий ${episodesLeft ?? "—"}, комментариев ${commentsLeft ?? "—"}`,
+    `${clean ? "🧹" : "⚠️"} осталось: профилей ${profilesLeft ?? "—"}, файлов аватаров ${filesLeft}, временных серий ${episodesLeft ?? "—"}, комментариев ${commentsLeft ?? "—"}, уведомлений ${notificationsMissing ? "— (нет таблицы)" : (notificationsLeft ?? "—")}`,
   );
   console.log(results.join("\n"));
   if (results.some((line) => line.startsWith("❌") || line.startsWith("⚠️"))) process.exitCode = 1;
