@@ -350,6 +350,99 @@ export type Database = {
           },
         ]
       }
+      notification_prefs: {
+        Row: {
+          new_episode: boolean
+          reply: boolean
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          new_episode?: boolean
+          reply?: boolean
+          updated_at?: string
+          user_id?: string
+        }
+        Update: {
+          new_episode?: boolean
+          reply?: boolean
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "notification_prefs_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: true
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      notifications: {
+        Row: {
+          actor_id: string | null
+          anilist_id: number
+          comment_id: number | null
+          cover_url: string | null
+          created_at: string
+          episode_number: number | null
+          id: number
+          read_at: string | null
+          title: string | null
+          type: string
+          user_id: string
+        }
+        Insert: {
+          actor_id?: string | null
+          anilist_id: number
+          comment_id?: number | null
+          cover_url?: string | null
+          created_at?: string
+          episode_number?: number | null
+          id?: never
+          read_at?: string | null
+          title?: string | null
+          type: string
+          user_id: string
+        }
+        Update: {
+          actor_id?: string | null
+          anilist_id?: number
+          comment_id?: number | null
+          cover_url?: string | null
+          created_at?: string
+          episode_number?: number | null
+          id?: never
+          read_at?: string | null
+          title?: string | null
+          type?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "notifications_actor_id_fkey"
+            columns: ["actor_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "notifications_comment_id_fkey"
+            columns: ["comment_id"]
+            isOneToOne: false
+            referencedRelation: "comments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "notifications_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       profiles: {
         Row: {
           avatar_url: string | null
