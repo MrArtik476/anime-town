@@ -122,7 +122,7 @@ $$;
 
 -- Ответ (insert с parent_id): уведомить автора корня и reply_to_user_id, без повторов и без
 -- автора ответа. Скрытие или удаление ответа (смена статуса на hidden/deleted) убирает его
--- уведомления; возврат в visible их не создаёт заново. Настоящее удаление — каскадом по comment_id.
+-- непрочитанные уведомления; возврат в visible их не создаёт заново. Настоящее удаление — каскадом по comment_id.
 create function private.comments_notify()
 returns trigger
 language plpgsql
@@ -135,7 +135,7 @@ declare
 begin
   if tg_op = 'UPDATE' then
     if new.status in ('hidden', 'deleted') and old.status is distinct from new.status then
-      delete from public.notifications where comment_id = new.id and type = 'reply';
+      delete from public.notifications where comment_id = new.id and type = 'reply' and read_at is null;
     end if;
     return null;
   end if;
@@ -274,10 +274,11 @@ create policy "notifications select own"
   on public.notifications for select to authenticated
   using ((select auth.uid()) = user_id);
 
+-- Только «прочитать»: вернуть read_at в null нельзя.
 create policy "notifications update own"
   on public.notifications for update to authenticated
   using ((select auth.uid()) = user_id)
-  with check ((select auth.uid()) = user_id);
+  with check ((select auth.uid()) = user_id and read_at is not null);
 
 create policy "notification_prefs select own"
   on public.notification_prefs for select to authenticated
