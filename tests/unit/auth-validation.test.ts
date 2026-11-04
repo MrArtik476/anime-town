@@ -60,6 +60,9 @@ describe("проверка полей", () => {
     expect(isProtectedPath("/account")).toBe(true);
     expect(isProtectedPath("/account/x")).toBe(true);
     expect(isProtectedPath("/accounting")).toBe(false);
+    expect(isProtectedPath("/notifications")).toBe(true);
+    expect(isProtectedPath("/notifications/x")).toBe(true);
+    expect(isProtectedPath("/notificationsx")).toBe(false);
     expect(escapeLike("a_b%c\\")).toBe("a\\_b\\%c\\\\");
   });
 });

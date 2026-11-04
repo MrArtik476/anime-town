@@ -9,6 +9,8 @@
 // - PATCH profiles — только своя строка (как RLS) и 409 / 23505 при занятом нике;
 // - anime_list — GET/POST (upsert)/DELETE только своих строк, гостю — 401, проверки статуса и оценки как в базе;
 // - anime_rating_stats — сумма и число оценок (в базе — триггер); Storage avatars — только своя папка, до 1 МБ;
+// - notifications / notification_prefs — свои строки; уведомление об ответе создаёт «триггер» при вставке ответа,
+//   о новой серии — тестовый вход POST /__test/episode-released { anilist_id, number, emails? } (только мок);
 // - ошибки — { code, error_code, msg } и заголовок X-Supabase-Api-Version.
 
 import { randomUUID } from "node:crypto";
@@ -492,7 +494,25 @@ async function handleComments(req, res, url) {
 
   if (req.method === "GET") {
     const rows = sortRows([...comments.values()].filter(visibleTo(user)).filter((row) => matches(row, params)), url.searchParams.get("order"));
-    return sendRows(req, res, 200, rows.slice(0, Number(url.searchParams.get("limit") ?? Infinity)).map((row) => pick(row, url.searchParams.get("select"))));
+    const select = url.searchParams.get("select");
+    // Встраивание по внешнему ключу на себя: root:parent_id(status) — корень ветки; скрытый RLS корень → null.
+    const embeds = (select ?? "").split(",").flatMap((part) => {
+      const embed = part.trim().match(/^(\w+):(\w+)\(([^)]*)\)$/);
+      return embed ? [{ alias: embed[1], key: embed[2], columns: embed[3] }] : [];
+    });
+    const plain = (select ?? "*")
+      .split(",")
+      .filter((part) => !part.includes("("))
+      .join(",");
+    const shape = (row) => {
+      const out = { ...pick(row, plain) };
+      for (const { alias, key, columns } of embeds) {
+        const target = row[key] == null ? undefined : comments.get(row[key]);
+        out[alias] = target && visibleTo(user)(target) ? pick(target, columns) : null;
+      }
+      return out;
+    };
+    return sendRows(req, res, 200, rows.slice(0, Number(url.searchParams.get("limit") ?? Infinity)).map(shape));
   }
   if (!user) return pgError(res, 401, "42501", "permission denied for table comments");
 
@@ -536,7 +556,10 @@ async function handleComments(req, res, url) {
       edited_at: null,
     };
     comments.set(row.id, row);
-    if (row.parent_id) changeReplyCount(row.parent_id, 1);
+    if (row.parent_id) {
+      changeReplyCount(row.parent_id, 1);
+      notifyReply(row);
+    }
     return respondRows(req, res, url, 201, [row]);
   }
 
@@ -685,7 +708,135 @@ function handleBans(req, res, url) {
   return sendRows(req, res, 200, rows.map((row) => pick(row, url.searchParams.get("select"))));
 }
 
+/**
+ * Уведомления (миграции PR 5b-1, ADR-026), упрощённо. Клиенту — select своих и update только read_at;
+ * insert/delete нет — строки создают «триггеры»: notifyReply (ответ в ветке) и POST /__test/episode-released
+ * (выход серии — только в моке; в базе это триггеры на episodes). Нет строки notification_prefs — всё включено.
+ */
+const notifications = [];
+/** user_id → { user_id, reply, new_episode, updated_at } */
+const notificationPrefs = new Map();
+let notificationSeq = 0;
+const COVER_PREFIX = "https://s4.anilist.co/file/anilistcdn/";
+const snapshotCover = (url) => (typeof url === "string" && url.startsWith(COVER_PREFIX) && url.length <= 500 ? url : null);
+const wants = (userId, kind) => notificationPrefs.get(userId)?.[kind] !== false;
+
+/** Как триггер на comments: автор корня и reply_to, без повторов и без самого автора ответа. */
+function notifyReply(reply) {
+  const root = comments.get(reply.parent_id);
+  if (!root) return;
+  const episode = EPISODES.find((e) => e.id === reply.episode_id);
+  for (const userId of new Set([root.user_id, reply.reply_to_user_id].filter(Boolean))) {
+    if (userId === reply.user_id || !wants(userId, "reply")) continue;
+    // Снимок тайтла — из комментария самого получателя в этой ветке (корень или его последний ответ), §6.3.
+    const own = [root, ...[...comments.values()].filter((row) => row.parent_id === root.id && row.id !== reply.id)]
+      .filter((row) => row.user_id === userId)
+      .at(-1);
+    notifications.push({
+      id: (notificationSeq += 1),
+      user_id: userId,
+      type: "reply",
+      anilist_id: reply.anilist_id,
+      episode_number: episode?.number ?? null,
+      comment_id: reply.id,
+      actor_id: reply.user_id,
+      title: own?.anime_title ?? null,
+      cover_url: own ? snapshotCover(own.anime_cover_url) : null,
+      created_at: nextCommentTime(),
+      read_at: null,
+    });
+  }
+}
+
+/**
+ * Как episodes_notify_insert/update: получатели — у кого тайтл в «Смотрю»/«Хочу посмотреть» и new_episode не выключен;
+ * непрочитанное по тайтлу одно (номер — наибольший, время — сейчас), после прочтения — новое (повторный выход серии).
+ * emails — изоляция тестов на общем моке: уведомить только этих пользователей (в базе такого параметра нет).
+ */
+function releaseEpisode({ anilist_id: animeId, number, emails }) {
+  if (!Number.isSafeInteger(animeId) || !Number.isSafeInteger(number)) return { error: "anilist_id и number — целые" };
+  const only = Array.isArray(emails) ? new Set(emails.map((email) => users.get(email)?.id).filter(Boolean)) : null;
+  let notified = 0;
+  for (const entry of animeList.values()) {
+    if (entry.anilist_id !== animeId || !["watching", "planned"].includes(entry.status)) continue;
+    if ((only && !only.has(entry.user_id)) || !wants(entry.user_id, "new_episode")) continue;
+    const unread = notifications.find((n) => n.user_id === entry.user_id && n.anilist_id === animeId && n.type === "new_episode" && n.read_at === null);
+    if (unread) Object.assign(unread, { episode_number: Math.max(unread.episode_number, number), created_at: nextCommentTime() });
+    else {
+      notifications.push({
+        id: (notificationSeq += 1),
+        user_id: entry.user_id,
+        type: "new_episode",
+        anilist_id: animeId,
+        episode_number: number,
+        comment_id: null,
+        actor_id: null,
+        title: entry.title ?? null,
+        cover_url: snapshotCover(entry.cover_url),
+        created_at: nextCommentTime(),
+        read_at: null,
+      });
+    }
+    notified += 1;
+  }
+  return { notified };
+}
+
+async function handleNotifications(req, res, url) {
+  const user = userByToken(req);
+  if (!user) return pgError(res, 401, "42501", "permission denied for table notifications");
+  const params = [...url.searchParams.entries()];
+  const own = () => notifications.filter((row) => row.user_id === user.id && matches(row, params));
+
+  if (req.method === "GET" || req.method === "HEAD") {
+    const rows = sortRows(own(), url.searchParams.get("order"));
+    const limited = rows.slice(0, Number(url.searchParams.get("limit") ?? Infinity));
+    // count=exact (select("id", { count: "exact", head: true })) — число в Content-Range, как у PostgREST.
+    const counted = (req.headers.prefer ?? "").includes("count=exact") ? { "Content-Range": `${limited.length ? `0-${limited.length - 1}` : "*"}/${rows.length}` } : {};
+    if (req.method === "HEAD") {
+      res.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "X-Supabase-Api-Version": API_VERSION, ...counted });
+      return res.end();
+    }
+    return send(res, 200, limited.map((row) => pick(row, url.searchParams.get("select"))), counted);
+  }
+  if (req.method === "PATCH") {
+    const patch = await readJson(req);
+    // Права на уровне колонок: клиенту можно менять только read_at.
+    if (Object.keys(patch).some((key) => key !== "read_at")) return pgError(res, 403, "42501", "permission denied for table notifications");
+    const changed = own();
+    for (const row of changed) row.read_at = patch.read_at;
+    return respondRows(req, res, url, 200, changed);
+  }
+  return pgError(res, 403, "42501", "permission denied for table notifications");
+}
+
+async function handleNotificationPrefs(req, res, url) {
+  const user = userByToken(req);
+  if (!user) return pgError(res, 401, "42501", "permission denied for table notification_prefs");
+  if (req.method === "GET") {
+    const rows = [...notificationPrefs.values()].filter((row) => row.user_id === user.id && matches(row, [...url.searchParams.entries()]));
+    return sendRows(req, res, 200, rows.map((row) => pick(row, url.searchParams.get("select"))));
+  }
+  if (req.method === "POST" || req.method === "PATCH") {
+    const body = await readJson(req);
+    const item = req.method === "PATCH" ? { ...notificationPrefs.get(user.id), ...body, user_id: user.id } : body;
+    // RLS with check: только своя строка.
+    if (item.user_id !== user.id) return pgError(res, 403, "42501", "new row violates row-level security policy");
+    const row = {
+      user_id: user.id,
+      reply: item.reply ?? notificationPrefs.get(user.id)?.reply ?? true,
+      new_episode: item.new_episode ?? notificationPrefs.get(user.id)?.new_episode ?? true,
+      updated_at: new Date().toISOString(),
+    };
+    notificationPrefs.set(user.id, row);
+    return respondRows(req, res, url, 201, [row]);
+  }
+  return pgError(res, 403, "42501", "permission denied for table notification_prefs");
+}
+
 async function handleRest(req, res, path, url) {
+  if (path === "/rest/v1/notifications") return handleNotifications(req, res, url);
+  if (path === "/rest/v1/notification_prefs") return handleNotificationPrefs(req, res, url);
   if (path === "/rest/v1/comments") return handleComments(req, res, url);
   if (path === "/rest/v1/rpc/comment_reply_previews") return handleReplyPreviews(req, res);
   if (path === "/rest/v1/comment_reports") return handleReports(req, res, url);
@@ -751,6 +902,11 @@ createServer(async (req, res) => {
   const path = url.pathname;
   try {
     if (path === "/health") return send(res, 200, { ok: true });
+    // Тестовый вход «серия вышла» — только в моке (в приложении такого маршрута нет).
+    if (req.method === "POST" && path === "/__test/episode-released") {
+      const result = releaseEpisode(await readJson(req));
+      return send(res, result.error ? 400 : 200, result);
+    }
     if (path.startsWith("/auth/v1/")) return await handleAuth(req, res, path, url);
     if (path.startsWith("/rest/v1/")) return await handleRest(req, res, path, url);
     if (path.startsWith("/storage/v1/")) return await handleStorage(req, res, path);

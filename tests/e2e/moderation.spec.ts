@@ -1,22 +1,11 @@
 import type { Browser, Page } from "@playwright/test";
 
-import { login, newUser, register } from "./account-helpers";
-import { comment, discussion, menu, post, secondUser, unique } from "./comments-helpers";
+import { newUser, register } from "./account-helpers";
+import { comment, discussion, menu, moderatorPage, post, secondUser, unique } from "./comments-helpers";
 import { expect, routeImages, test, uniqueClientIp } from "./fixtures";
 
 // Модерация против мока Supabase: мок повторяет эффекты private.moderation_apply, настоящие проверяет
 // npm run rls:check. Модератор заведён в моке (moderator@e2e.test); данные общие — у каждого теста свои тексты.
-
-const MODERATOR = { email: "moderator@e2e.test", password: "Sakura-2026!" };
-
-async function moderatorPage(browser: Browser): Promise<{ page: Page; close: () => Promise<void> }> {
-  const context = await browser.newContext({ extraHTTPHeaders: { "x-forwarded-for": uniqueClientIp(98) } });
-  const page = await context.newPage();
-  await routeImages(page);
-  await login(page, MODERATOR.email, MODERATOR.password);
-  await expect(page).toHaveURL(/\/account$/);
-  return { page, close: () => context.close() };
-}
 
 /** Автор пишет комментарий на /anime/1, второй пользователь на него жалуется. */
 async function reportedComment(page: Page, browser: Browser, text: string) {
