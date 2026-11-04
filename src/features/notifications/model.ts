@@ -22,8 +22,9 @@ export const PAGE_SIZE = 20;
 
 /** Бейдж колокольчика: 0 — без бейджа, от 10 — «9+». */
 export function badgeLabel(count: number): string | null {
-  if (!Number.isFinite(count) || count <= 0) return null;
-  return count > 9 ? "9+" : String(Math.floor(count));
+  const whole = Math.floor(count);
+  if (!Number.isFinite(whole) || whole <= 0) return null;
+  return whole > 9 ? "9+" : String(whole);
 }
 
 export function notificationText(n: NotificationRow, actorName: string | null): string {

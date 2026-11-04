@@ -27,6 +27,7 @@ describe("badgeLabel", () => {
   it.each([
     [0, null],
     [-1, null],
+    [0.5, null],
     [1, "1"],
     [9, "9"],
     [10, "9+"],

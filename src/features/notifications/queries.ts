@@ -39,7 +39,7 @@ export async function getUnreadCount(): Promise<number | null> {
 /**
  * Список от новых к старым (keyset по 20). Доступность целей ссылок — два пакетных запроса на страницу:
  * серии (RLS отдаёт только license_status <> none — условие getEpisode) и комментарии вместе с корнем.
- * Если проверка не удалась, ссылка остаётся «как есть»: уведомление важнее, чем идеальная ссылка.
+ * Если проверка не удалась, ссылка ведёт на безопасную цель — /anime/{id} без плеера и якоря: ссылка не должна вести на ошибку.
  */
 export async function getNotifications(rawCursor: string | null): Promise<NotificationsPage> {
   const empty: NotificationsPage = { items: [], nextCursor: null, failed: false };
@@ -68,11 +68,19 @@ export async function getNotifications(rawCursor: string | null): Promise<Notifi
   if (rows.length === 0) return empty;
 
   // Запрос 1: видимые серии тайтлов страницы.
-  const animeIds = [...new Set(rows.filter((r) => r.episode_number !== null).map((r) => r.anilist_id))];
   const episodes = new Set<string>();
   let episodesOk = true;
-  if (animeIds.length > 0) {
-    const res = await supabase.from("episodes").select("anilist_id, number").in("anilist_id", animeIds).neq("license_status", "none").limit(5000);
+  const pairs = [
+    ...new Set(
+      rows.flatMap((r) =>
+      r.episode_number !== null && Number.isSafeInteger(r.anilist_id) && Number.isSafeInteger(r.episode_number)
+        ? [`and(anilist_id.eq.${r.anilist_id},number.eq.${r.episode_number})`]
+        : [],
+      ),
+    ),
+  ];
+  if (pairs.length > 0) {
+    const res = await supabase.from("episodes").select("anilist_id, number").neq("license_status", "none").or(pairs.join(","));
     if (res.error) {
       console.error("[notifications] серии не загружены", res.error.code);
       episodesOk = false;
@@ -87,17 +95,13 @@ export async function getNotifications(rawCursor: string | null): Promise<Notifi
   if (commentIds.length > 0) {
     const res = await supabase
       .from("comments")
-      .select("id, parent_id, status, root:comments!comments_parent_id_fkey(status)")
+      .select("id, parent_id, status, root:parent_id(status)")
       .in("id", commentIds);
     if (res.error) {
       console.error("[notifications] комментарии не загружены", res.error.code);
       commentsOk = false;
     }
-    for (const c of res.data ?? []) {
-      // PostgREST отдаёт связь «много к одному» объектом; типы генератора описывают её массивом.
-      const root = (Array.isArray(c.root) ? c.root[0] : c.root) as { status: string } | null | undefined;
-      comments.set(c.id, { parent_id: c.parent_id, status: c.status, root: root ?? null });
-    }
+    for (const c of res.data ?? []) comments.set(c.id, { parent_id: c.parent_id, status: c.status, root: c.root });
   }
 
   const actorIds = [...new Set(rows.flatMap((r) => (r.actor_id === null ? [] : [r.actor_id])))];
@@ -109,8 +113,9 @@ export async function getNotifications(rawCursor: string | null): Promise<Notifi
 
   const items = rows.map((n): NotificationItem => {
     const availability: Availability = {
-      episode: n.episode_number === null || !episodesOk ? undefined : episodes.has(`${n.anilist_id}:${n.episode_number}`),
-      comment: n.comment_id === null || !commentsOk ? undefined : commentAvailable(comments.get(n.comment_id)),
+      episode:
+        n.episode_number === null ? undefined : episodesOk && !(n.comment_id !== null && !commentsOk) && episodes.has(`${n.anilist_id}:${n.episode_number}`),
+      comment: n.comment_id === null ? undefined : commentsOk && commentAvailable(comments.get(n.comment_id)),
     };
     return {
       id: n.id,
