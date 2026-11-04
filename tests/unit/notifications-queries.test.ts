@@ -6,6 +6,8 @@ import { getNotificationPrefs, getNotifications } from "@/features/notifications
 type Res = { data: unknown; error: { code: string } | null };
 const db = vi.hoisted(() => ({
   queried: [] as string[],
+  /** Вызовы фильтров: "таблица.метод" → аргументы. */
+  calls: [] as { call: string; args: unknown[] }[],
   results: {} as Record<string, Res>,
 }));
 
@@ -17,7 +19,12 @@ vi.mock("@/lib/supabase/server", () => ({
       db.queried.push(table);
       const result = () => db.results[table] ?? { data: [], error: null };
       const chain: Record<string, unknown> = {};
-      for (const m of ["select", "eq", "is", "or", "in", "neq", "order"]) chain[m] = () => chain;
+      for (const m of ["select", "eq", "is", "or", "in", "neq", "order"]) {
+        chain[m] = (...args: unknown[]) => {
+          db.calls.push({ call: `${table}.${m}`, args });
+          return chain;
+        };
+      }
       chain.maybeSingle = async () => result();
       chain.limit = async () => result();
       chain.then = (resolve: (r: Res) => unknown) => resolve(result());
@@ -46,6 +53,7 @@ const fresh = n({ id: 1, type: "new_episode", episode_number: 12, anilist_id: 30
 
 beforeEach(() => {
   db.queried = [];
+  db.calls = [];
   db.results = {
     notifications: { data: [reply, fresh], error: null },
     episodes: {
@@ -67,6 +75,11 @@ describe("getNotifications", () => {
     expect(db.queried).toEqual(["notifications", "episodes", "comments", "profiles"]);
     expect(page.items.map((i) => i.href)).toEqual(["/anime/21/watch/3#comment-77", "/anime/30/watch/12"]);
     expect(page.items[0].text).toBe("aoi ответил(а) на ваш комментарий");
+    // Один точечный запрос серий: пары (тайтл, номер) страницы, только видимые.
+    expect(db.calls.filter((c) => c.call === "episodes.or").map((c) => c.args)).toEqual([
+      ["and(anilist_id.eq.21,number.eq.3),and(anilist_id.eq.30,number.eq.12)"],
+    ]);
+    expect(db.calls.filter((c) => c.call === "episodes.neq").map((c) => c.args)).toEqual([["license_status", "none"]]);
     expect(page.failed).toBe(false);
   });
 

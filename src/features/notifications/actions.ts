@@ -19,9 +19,16 @@ export async function markRead(rawId: unknown): Promise<ActionResult> {
   const id = parseId(rawId);
   if (!id) return INVALID;
   if (!getSupabaseEnv()) return UNAVAILABLE;
-  if (!(await getCurrentUser())) return SIGN_IN;
+  const user = await getCurrentUser();
+  if (!user) return SIGN_IN;
   const supabase = await createClient();
-  const { error } = await supabase.from("notifications").update({ read_at: new Date().toISOString() }).eq("id", id).is("read_at", null);
+  // user_id — защита в глубину поверх RLS (как в markAllRead).
+  const { error } = await supabase
+    .from("notifications")
+    .update({ read_at: new Date().toISOString() })
+    .eq("id", id)
+    .eq("user_id", user.id)
+    .is("read_at", null);
   if (error) return { ok: false, message: commentErrorMessage(error) };
   refresh();
   return { ok: true };

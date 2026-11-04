@@ -9,5 +9,6 @@ import { BellPoller } from "./bell-poller";
  */
 export async function NotificationBell() {
   if (!(await getCurrentUser())) return null;
-  return <BellPoller initialCount={await getUnreadCount()} />;
+  // Новый объект на каждый серверный рендер: BellPoller по нему понимает, что пришёл свежий счётчик.
+  return <BellPoller initial={{ count: await getUnreadCount() }} />;
 }

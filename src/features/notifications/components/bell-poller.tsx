@@ -3,7 +3,7 @@
 import { Bell } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { badgeLabel } from "../model";
 
@@ -16,23 +16,33 @@ const POLL_MS = 60_000;
  * по возврату — сразу один запрос и новый интервал. Без aria-live: число озвучивается в aria-label ссылки,
  * опрос не перебивает чтение страницы.
  */
-export function BellPoller({ initialCount }: { initialCount: number | null }) {
-  const [count, setCount] = useState(initialCount);
-  // Новый счётчик с сервера (refresh() после «Прочитать все», переход) заменяет опрошенный: «предыдущие props в state».
-  const [source, setSource] = useState(initialCount);
-  if (source !== initialCount) {
-    setSource(initialCount);
-    setCount(initialCount);
+export function BellPoller({ initial }: { initial: { count: number | null } }) {
+  const [count, setCount] = useState(initial.count);
+  // Каждый серверный рендер (refresh() после markRead / «Прочитать все», переход) приносит новый объект initial —
+  // его значение заменяет опрошенное, даже если число то же («предыдущие props в state», сравнение по ссылке).
+  const [source, setSource] = useState(initial);
+  if (source !== initial) {
+    setSource(initial);
+    setCount(initial.count);
   }
   const pathname = usePathname();
 
+  // Номер последнего запроса: ответ применяется, только если после его отправки не было ни нового запроса,
+  // ни нового серверного счётчика — иначе ответ, начатый до записи markRead, перетёр бы свежее значение.
+  const latest = useRef(0);
+  // Layout-эффект — синхронно при коммите, раньше любого ответа fetch.
+  useLayoutEffect(() => {
+    latest.current += 1;
+  }, [initial]);
+
   const load = useCallback(async () => {
+    const id = (latest.current += 1);
     try {
       const response = await fetch(COUNT_URL, { cache: "no-store" });
       if (!response.ok) return; // 401 (сессия кончилась) или сбой — остаётся последний известный счётчик
       const body: unknown = await response.json();
       const value = typeof body === "object" && body !== null ? (body as { count?: unknown }).count : undefined;
-      if (typeof value === "number") setCount(value);
+      if (typeof value === "number" && id === latest.current) setCount(value);
     } catch {
       // сеть недоступна — следующий опрос попробует снова
     }

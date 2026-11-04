@@ -6,7 +6,7 @@ import { useState, useTransition } from "react";
 
 import { PosterImage } from "@/components/anime/poster-image";
 import { Button } from "@/components/ui/button";
-import { formatWhen } from "@/features/comments/components/comment-item";
+import { formatWhen } from "@/features/comments/model";
 import { cn } from "@/lib/utils";
 
 import { markAllRead, markRead } from "../actions";
@@ -54,7 +54,9 @@ export function NotificationList({
     void markRead(item.id);
   };
 
+  // Пока идёт запрос — aria-disabled и ранний выход, а не disabled: так фокус клавиатуры остаётся на кнопке.
   const readAll = () => {
+    if (pending) return;
     setError(null);
     startTransition(async () => {
       const result = await markAllRead();
@@ -65,7 +67,7 @@ export function NotificationList({
   };
 
   const loadMore = async () => {
-    if (!cursor) return;
+    if (!cursor || loading) return;
     setLoading(true);
     setError(null);
     try {
@@ -94,7 +96,7 @@ export function NotificationList({
     <div>
       {hasUnread && (
         <div className="mb-4 flex justify-end">
-          <Button type="button" variant="outline" size="lg" onClick={readAll} disabled={pending}>
+          <Button type="button" variant="outline" size="lg" onClick={readAll} aria-disabled={pending} className="aria-disabled:opacity-60">
             {pending ? <LoaderCircle aria-hidden className="animate-spin" /> : <CheckCheck aria-hidden />}
             Прочитать все
           </Button>
@@ -137,7 +139,7 @@ export function NotificationList({
         </p>
       )}
       {cursor && (
-        <Button type="button" variant="outline" className="mt-6 w-full" onClick={loadMore} disabled={loading}>
+        <Button type="button" variant="outline" className="mt-6 w-full aria-disabled:opacity-60" onClick={loadMore} aria-disabled={loading}>
           {loading && <LoaderCircle aria-hidden className="animate-spin" />}
           Показать ещё
         </Button>

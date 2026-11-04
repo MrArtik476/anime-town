@@ -26,6 +26,8 @@ export function NotificationPrefsForm({ initial }: { initial: NotificationPrefs 
   const id = useId();
 
   const toggle = (key: keyof NotificationPrefs) => {
+    // aria-disabled, а не disabled: отключённая кнопка теряет фокус (он уходит на <body>) — нажатие просто игнорируем.
+    if (pending) return;
     const next = { ...value, [key]: !value[key] };
     setValue(next);
     setError(null);
@@ -58,9 +60,9 @@ export function NotificationPrefsForm({ initial }: { initial: NotificationPrefs 
                 aria-checked={on}
                 aria-labelledby={`${id}-${key}`}
                 onClick={() => toggle(key)}
-                disabled={pending}
+                aria-disabled={pending}
                 className={cn(
-                  "relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border border-transparent transition-colors outline-none focus-visible:ring-3 focus-visible:ring-ring/60 disabled:opacity-60",
+                  "relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border border-transparent transition-colors outline-none focus-visible:ring-3 focus-visible:ring-ring/60 aria-disabled:opacity-60",
                   on ? "bg-primary" : "bg-muted-foreground/30",
                 )}
               >

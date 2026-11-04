@@ -133,7 +133,7 @@ describe("NotificationPrefsForm", () => {
     expect(episodes.getAttribute("aria-checked")).toBe("false");
     await userEvent.click(reply);
     expect(actions.saveNotificationPrefs).toHaveBeenCalledWith({ reply: false, newEpisode: false });
-    expect((await screen.findByRole("status")).textContent).toContain("Сохранено");
+    await waitFor(() => expect(screen.getByRole("status").textContent).toContain("Сохранено"));
     expect(reply.getAttribute("aria-checked")).toBe("false");
   });
 
@@ -144,5 +144,66 @@ describe("NotificationPrefsForm", () => {
     await userEvent.click(episodes);
     expect((await screen.findByRole("alert")).textContent).toBe("Уведомления временно недоступны");
     expect(episodes.getAttribute("aria-checked")).toBe("true");
+  });
+});
+
+/** Обещание, которое тест разрешает сам: состояние «идёт запрос». */
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((r) => (resolve = r));
+  return { promise, resolve };
+}
+
+describe("фокус не теряется, пока идёт запрос (aria-disabled вместо disabled)", () => {
+  it("переключатель: фокус остаётся, повторное нажатие игнорируется", async () => {
+    const save = deferred<{ ok: true }>();
+    actions.saveNotificationPrefs.mockReturnValue(save.promise);
+    render(<NotificationPrefsForm initial={{ reply: true, newEpisode: true }} />);
+    const reply = screen.getByRole("switch", { name: "Ответы на мои комментарии" });
+    reply.focus();
+    await userEvent.keyboard(" ");
+    expect(reply.hasAttribute("disabled")).toBe(false);
+    expect(reply.getAttribute("aria-disabled")).toBe("true");
+    expect(document.activeElement).toBe(reply);
+    await userEvent.keyboard(" ");
+    expect(actions.saveNotificationPrefs).toHaveBeenCalledTimes(1);
+    save.resolve({ ok: true });
+    await waitFor(() => expect(screen.getByRole("status").textContent).toContain("Сохранено"));
+    expect(document.activeElement).toBe(reply);
+    expect(reply.getAttribute("aria-disabled")).toBe("false");
+  });
+
+  it("«Показать ещё»: фокус остаётся на кнопке во время загрузки, повторный клик игнорируется", async () => {
+    const page = deferred<Response>();
+    const fetchMock = vi.fn(() => page.promise);
+    vi.stubGlobal("fetch", fetchMock);
+    render(<NotificationList initial={[item(3)]} initialCursor="A" unread={1} />);
+    const more = screen.getByRole("button", { name: "Показать ещё" });
+    more.focus();
+    await userEvent.keyboard("{Enter}");
+    expect(more.hasAttribute("disabled")).toBe(false);
+    expect(more.getAttribute("aria-disabled")).toBe("true");
+    expect(document.activeElement).toBe(more);
+    await userEvent.keyboard("{Enter}");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    page.resolve(Response.json({ items: [item(2)], nextCursor: "B" }));
+    await waitFor(() => expect(screen.getAllByRole("link")).toHaveLength(2));
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Показать ещё" }));
+  });
+
+  it("«Прочитать все»: во время запроса кнопка фокусируема (aria-disabled), повтор игнорируется", async () => {
+    const done = deferred<{ ok: true }>();
+    actions.markAllRead.mockReturnValue(done.promise);
+    render(<NotificationList initial={[item(3)]} initialCursor={null} unread={1} />);
+    const all = screen.getByRole("button", { name: "Прочитать все" });
+    all.focus();
+    await userEvent.keyboard("{Enter}");
+    expect(all.hasAttribute("disabled")).toBe(false);
+    expect(all.getAttribute("aria-disabled")).toBe("true");
+    expect(document.activeElement).toBe(all);
+    await userEvent.keyboard("{Enter}");
+    expect(actions.markAllRead).toHaveBeenCalledTimes(1);
+    done.resolve({ ok: true });
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Прочитать все" })).toBeNull());
   });
 });

@@ -189,6 +189,8 @@ test.describe("Уведомления", () => {
     await page.keyboard.press("Space");
     await expect(episodes).toHaveAttribute("aria-checked", "false");
     await expect(prefs.getByRole("status")).toHaveText("Сохранено");
+    // Во время сохранения переключатель не отключается (aria-disabled) — фокус клавиатуры остаётся на нём.
+    await expect(episodes).toBeFocused();
 
     // После перезагрузки — значения из базы.
     await page.reload();

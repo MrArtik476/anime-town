@@ -171,3 +171,22 @@ export function profileIds(rows: CommentRow[]): string[] {
   }
   return [...ids];
 }
+
+const dateFormat = new Intl.DateTimeFormat("ru-RU", {
+  day: "numeric",
+  month: "long",
+  year: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+  timeZone: "Europe/Minsk",
+});
+
+/** «5 минут назад» до суток, дальше — дата. Время сервера и браузера может разойтись — без предупреждения гидратации. */
+export function formatWhen(iso: string): string {
+  const diff = (Date.now() - Date.parse(iso)) / 1000;
+  const relative = new Intl.RelativeTimeFormat("ru", { numeric: "auto" });
+  if (diff < 60) return "только что";
+  if (diff < 3600) return relative.format(-Math.floor(diff / 60), "minute");
+  if (diff < 86_400) return relative.format(-Math.floor(diff / 3600), "hour");
+  return dateFormat.format(Date.parse(iso));
+}

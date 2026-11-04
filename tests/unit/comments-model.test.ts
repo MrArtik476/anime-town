@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { commentErrorMessage } from "@/features/comments/errors";
 import {
@@ -7,6 +7,7 @@ import {
   type CommentRow,
   decodeCursor,
   encodeCursor,
+  formatWhen,
   MAX_BODY,
   parseCommentBody,
   type ProfileRow,
@@ -128,5 +129,20 @@ describe("commentErrorMessage", () => {
   it("неизвестная ошибка — общее сообщение", () => {
     expect(commentErrorMessage({ code: "XX000" })).toBe("Не получилось — попробуйте ещё раз");
     expect(commentErrorMessage(null)).toBe("Не получилось — попробуйте ещё раз");
+  });
+});
+
+describe("formatWhen — общий модуль (комментарии и уведомления)", () => {
+  it("до минуты — «только что», до часа — минуты, до суток — часы, дальше — дата по Минску", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-11-04T12:00:00Z"));
+    try {
+      expect(formatWhen("2026-11-04T11:59:30Z")).toBe("только что");
+      expect(formatWhen("2026-11-04T11:55:00Z")).toBe("5 минут назад");
+      expect(formatWhen("2026-11-04T09:00:00Z")).toBe("3 часа назад");
+      expect(formatWhen("2026-11-01T09:00:00Z")).toMatch(/^1 ноября 2026 г\.,? (в )?12:00$/);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

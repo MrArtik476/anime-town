@@ -192,8 +192,8 @@ describe("NotificationBell (сервер) — начальный счётчик"
 
   it("вошедшему — BellPoller с начальным счётчиком; ошибка счётчика — null (без бейджа)", async () => {
     const { NotificationBell } = await import("@/features/notifications/components/notification-bell");
-    expect((await NotificationBell())?.props).toEqual({ initialCount: 3 });
+    expect((await NotificationBell())?.props).toEqual({ initial: { count: 3 } });
     db.count = null;
-    expect((await NotificationBell())?.props).toEqual({ initialCount: null });
+    expect((await NotificationBell())?.props).toEqual({ initial: { count: null } });
   });
 });

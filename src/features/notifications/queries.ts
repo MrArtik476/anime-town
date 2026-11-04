@@ -74,9 +74,9 @@ export async function getNotifications(rawCursor: string | null): Promise<Notifi
   const pairs = [
     ...new Set(
       rows.flatMap((r) =>
-      r.episode_number !== null && Number.isSafeInteger(r.anilist_id) && Number.isSafeInteger(r.episode_number)
-        ? [`and(anilist_id.eq.${r.anilist_id},number.eq.${r.episode_number})`]
-        : [],
+        r.episode_number !== null && Number.isSafeInteger(r.anilist_id) && Number.isSafeInteger(r.episode_number)
+          ? [`and(anilist_id.eq.${r.anilist_id},number.eq.${r.episode_number})`]
+          : [],
       ),
     ),
   ];
@@ -109,6 +109,8 @@ export async function getNotifications(rawCursor: string | null): Promise<Notifi
   const names = new Map<string, string>();
   if (actorIds.length > 0) {
     const res = await supabase.from("profiles").select("id, username, display_name").in("id", actorIds);
+    // Без ников текст остаётся корректным («Пользователь ответил(а)…») — только журнал.
+    if (res.error) console.error("[notifications] ники не загружены", res.error.code);
     for (const p of res.data ?? []) names.set(p.id, p.display_name || p.username);
   }
 
