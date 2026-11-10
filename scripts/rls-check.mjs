@@ -805,6 +805,76 @@ try {
   const anonTr = await anon.from("anime_localizations").insert({ anilist_id: 999999999 });
   check("гость не пишет переводы", !!anonTr.error, anonTr.error?.code ?? "ЗАПИСАЛ");
 
+  // ---- админ-панель (миграция admin): серии, субтитры, роли ----
+  const AD = await makeUser("ad");
+  const AT = await makeUser("at");
+  {
+    const { error } = await admin.from("profiles").update({ role: "admin" }).eq("id", AD.id);
+    if (error) throw new Error(`role ad: ${error.message}`);
+  }
+  const draft = { anilist_id: PROBE_ANIME_ID, number: 90, license_status: "none", hls_url: "/media/test/master.m3u8" };
+  const adminDraft = await AD.client.from("episodes").insert(draft).select("id").single();
+  check("админ создаёт серию-черновик", !adminDraft.error && !!adminDraft.data?.id, code(adminDraft));
+  const draftId = adminDraft.data?.id ?? -1;
+  check("админ видит черновик", (await AD.client.from("episodes").select("id").eq("id", draftId)).data?.length === 1);
+  check("пользователь не видит черновик", (await AT.client.from("episodes").select("id").eq("id", draftId)).data?.length === 0);
+  check("модератор не видит черновик", (await M.client.from("episodes").select("id").eq("id", draftId)).data?.length === 0);
+  check("гость не видит черновик", (await anon.from("episodes").select("id").eq("id", draftId)).data?.length === 0);
+  const modEpInsert = await M.client.from("episodes").insert({ ...draft, number: 91 }).select("id");
+  check("модератор не создаёт серии", !!modEpInsert.error, code(modEpInsert));
+  const userEpDelete = await AT.client.from("episodes").delete().eq("id", draftId).select("id");
+  check("пользователь не удаляет серии", blocked(userEpDelete), rows(userEpDelete));
+  const adminEpUpdate = await AD.client.from("episodes").update({ title: "Проба" }).eq("id", draftId).select("title");
+  check("админ меняет серию", adminEpUpdate.data?.[0]?.title === "Проба", code(adminEpUpdate));
+  const moveEpisode = await AD.client.from("episodes").update({ anilist_id: PROBE_ANIME_ID - 1 }).eq("id", draftId).select("id");
+  check("админ не переносит серию в другой тайтл", !!moveEpisode.error, code(moveEpisode));
+  const forgedId = await AD.client.from("episodes").insert({ ...draft, number: 92, created_at: "2000-01-01T00:00:00Z" }).select("id");
+  check("админ не задаёт служебные колонки серии", !!forgedId.error, code(forgedId));
+
+  const subtitle = { episode_id: draftId, lang: "ru", label: "Русские", url: "/media/test/subtitles.ru.vtt", is_default: true };
+  const adminSub = await AD.client.from("subtitles").insert(subtitle).select("id").single();
+  check("админ добавляет субтитры", !adminSub.error && !!adminSub.data?.id, code(adminSub));
+  const userSub = await AT.client.from("subtitles").insert({ ...subtitle, lang: "en" }).select("id");
+  check("пользователь не добавляет субтитры", !!userSub.error, code(userSub));
+  check("пользователь не видит субтитры черновика", (await AT.client.from("subtitles").select("id").eq("episode_id", draftId)).data?.length === 0);
+  const adminSubDelete = await AD.client.from("subtitles").delete().eq("id", adminSub.data?.id ?? -1).select("id");
+  check("админ удаляет субтитры", adminSubDelete.data?.length === 1, code(adminSubDelete));
+  const adminEpDelete = await AD.client.from("episodes").delete().eq("id", draftId).select("id");
+  check("админ удаляет серию", adminEpDelete.data?.length === 1, code(adminEpDelete));
+
+  // Роли — только вставкой в admin_actions.
+  const setRole = (client, fields) => client.from("admin_actions").insert({ action: "set_role", ...fields }).select("id, admin_id, old_role, new_role").single();
+  const roleOf = async (id) => (await admin.from("profiles").select("role").eq("id", id).single()).data?.role;
+  const directRole = await AD.client.from("profiles").update({ role: "moderator" }).eq("id", AT.id).select("id");
+  check("админ не меняет роль напрямую в profiles", blocked(directRole) && (await roleOf(AT.id)) === "user", rows(directRole));
+  const userPromote = await AT.client.from("admin_actions").insert({ action: "set_role", target_user_id: AT.id, new_role: "admin" });
+  check("пользователь не назначает роли", userPromote.error?.code === "42501" && (await roleOf(AT.id)) === "user", code(userPromote));
+  const modPromote = await M.client.from("admin_actions").insert({ action: "set_role", target_user_id: M.id, new_role: "admin" });
+  check("модератор не назначает роли", modPromote.error?.code === "42501" && (await roleOf(M.id)) === "moderator", code(modPromote));
+  const anonPromote = await anon.from("admin_actions").insert({ action: "set_role", target_user_id: AT.id, new_role: "admin" });
+  check("гость не назначает роли", !!anonPromote.error, code(anonPromote));
+  const ownRole = await setRole(AD.client, { target_user_id: AD.id, new_role: "user" });
+  check("админ не меняет свою роль", ownRole.error?.code === "PT422" && (await roleOf(AD.id)) === "admin", code(ownRole));
+  const sameRole = await setRole(AD.client, { target_user_id: AT.id, new_role: "user" });
+  check("та же роль — отказ", sameRole.error?.code === "PT422", code(sameRole));
+  const badRole = await setRole(AD.client, { target_user_id: AT.id, new_role: "owner" });
+  check("неизвестная роль — отказ", !!badRole.error, code(badRole));
+  const forgedAdmin = await AD.client.from("admin_actions").insert({ action: "set_role", target_user_id: AT.id, new_role: "moderator", admin_id: AT.id });
+  check("админ не подставляет чужой admin_id", !!forgedAdmin.error && (await roleOf(AT.id)) === "user", code(forgedAdmin));
+  const promote = await setRole(AD.client, { target_user_id: AT.id, new_role: "moderator" });
+  check(
+    "админ назначает модератора: роль применена, журнал заполнен",
+    !promote.error && promote.data?.admin_id === AD.id && promote.data?.old_role === "user" && promote.data?.new_role === "moderator" && (await roleOf(AT.id)) === "moderator",
+    code(promote),
+  );
+  check("админ читает журнал", (await AD.client.from("admin_actions").select("id").eq("target_user_id", AT.id)).data?.length === 1);
+  check("модератор не читает журнал админа", blocked(await AT.client.from("admin_actions").select("id")));
+  check("гость не читает журнал админа", blocked(await anon.from("admin_actions").select("id")));
+  const logEdit = await AD.client.from("admin_actions").update({ new_role: "admin" }).eq("id", promote.data?.id ?? -1).select("id");
+  check("админ не правит журнал", blocked(logEdit), rows(logEdit));
+  const logDelete = await AD.client.from("admin_actions").delete().eq("id", promote.data?.id ?? -1).select("id");
+  check("админ не удаляет журнал", blocked(logDelete), rows(logDelete));
+
   // ---- итог по данным ----
   const { data: bRow } = await admin.from("anime_list").select("score, status").eq("user_id", B.id).single();
   const { data: aProf } = await admin.from("profiles").select("role").eq("id", A.id).single();
@@ -819,6 +889,8 @@ try {
   await admin.from("episodes").delete().eq("anilist_id", PROBE_ANIME_ID);
   // Журнал модерации переживает удаление пользователей (ссылки обнуляются) — строки проб убираем явно.
   if (created.length) await admin.from("moderation_actions").delete().in("moderator_id", created);
+  // То же для журнала администратора (нет таблицы — миграция не применена, ошибку покажут проверки выше).
+  if (created.length) await admin.from("admin_actions").delete().in("admin_id", created);
   for (const id of created) {
     const { data: files } = await admin.storage.from("avatars").list(id);
     if (files?.length) await admin.storage.from("avatars").remove(files.map((file) => `${id}/${file.name}`));
