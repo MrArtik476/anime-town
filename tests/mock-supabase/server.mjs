@@ -467,7 +467,7 @@ const constraintError = (res, code) =>
   });
 
 /**
- * Серии и субтитры (миграция 20261110120000_admin): читать черновики (none) и менять может только admin;
+ * Серии и субтитры (миграция 20261110153346_admin): читать черновики (none) и менять может только admin;
  * остальным — как раньше, только серии с правами. Выход серии с правами рассылает уведомления (триггеры episodes).
  */
 async function handleCatalogTable(req, res, url, table) {
@@ -945,7 +945,7 @@ async function handleNotificationPrefs(req, res, url) {
   return pgError(res, 403, "42501", "permission denied for table notification_prefs");
 }
 
-/** admin_actions (миграция 20261110120000_admin): журнал видит и пишет только admin; эффект — как private.admin_apply. */
+/** admin_actions (миграция 20261110153346_admin): журнал видит и пишет только admin; эффект — как private.admin_apply. */
 const adminActions = [];
 
 async function handleAdminActions(req, res, url) {
