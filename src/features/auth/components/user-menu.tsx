@@ -1,4 +1,4 @@
-import { ShieldCheck } from "lucide-react";
+import { Settings, ShieldCheck } from "lucide-react";
 import Link from "next/link";
 
 import { buttonVariants } from "@/components/ui/button";
@@ -32,6 +32,12 @@ export async function UserMenu() {
         <Link href="/moderation" className={cn(itemClass, "text-muted-foreground hover:bg-muted hover:text-foreground")}>
           <ShieldCheck aria-hidden className="size-4" />
           <span className="sr-only md:not-sr-only">Модерация</span>
+        </Link>
+      )}
+      {role === "admin" && (
+        <Link href="/admin" className={cn(itemClass, "text-muted-foreground hover:bg-muted hover:text-foreground")}>
+          <Settings aria-hidden className="size-4" />
+          <span className="sr-only md:not-sr-only">Админка</span>
         </Link>
       )}
       <Link href="/account" className={cn(itemClass, "bg-muted text-foreground hover:bg-muted/70")} title="Профиль">
