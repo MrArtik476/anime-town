@@ -141,7 +141,22 @@ function splitTopLevel(text) {
 const unquote = (value) => (value.startsWith('"') && value.endsWith('"') ? value.slice(1, -1) : value);
 const comparable = (a, b) => (Number.isNaN(Date.parse(a)) || Number.isNaN(Date.parse(b)) || /^\d+$/.test(a) ? [Number(a), Number(b)] : [Date.parse(a), Date.parse(b)]);
 
-/** Условие PostgREST "op.value" для одной колонки: eq, neq, lt, gt, is, in, ilike (без шаблонов). */
+const escapeRegExp = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/** Шаблон ilike → RegExp: % и * — любая строка, _ — один символ, \x — буквально x. */
+function ilikeRegExp(pattern) {
+  let source = "";
+  for (let i = 0; i < pattern.length; i += 1) {
+    const char = pattern[i];
+    if (char === "\\" && i + 1 < pattern.length) source += escapeRegExp(pattern[(i += 1)]);
+    else if (char === "%" || char === "*") source += ".*";
+    else if (char === "_") source += ".";
+    else source += escapeRegExp(char);
+  }
+  return new RegExp(`^${source}$`, "iu");
+}
+
+/** Условие PostgREST "op.value" для одной колонки: eq, neq, lt, gt, is, in, ilike. */
 function condition(row, column, filter) {
   const dot = filter.indexOf(".");
   const op = filter.slice(0, dot);
@@ -163,7 +178,7 @@ function condition(row, column, filter) {
     case "in":
       return splitTopLevel(value.replace(/^\(|\)$/g, "")).map(unquote).includes(String(cell));
     case "ilike":
-      return String(cell).toLowerCase() === value.replace(/\\(.)/g, "$1").toLowerCase();
+      return ilikeRegExp(value).test(String(cell));
     default:
       return true;
   }
@@ -201,7 +216,11 @@ function sortRows(rows, order) {
   return [...rows].sort((x, y) => {
     for (const { column, sign } of keys) {
       const [a, b] = comparable(String(x[column]), String(y[column]));
-      if (a !== b) return (a < b ? -1 : 1) * sign;
+      // Текстовые колонки (ник, роль) — по алфавиту.
+      if (Number.isNaN(a) || Number.isNaN(b)) {
+        const order = String(x[column]).localeCompare(String(y[column]));
+        if (order !== 0) return order * sign;
+      } else if (a !== b) return (a < b ? -1 : 1) * sign;
     }
     return 0;
   });
@@ -413,7 +432,99 @@ const SUBTITLES = [
   { id: 2, episode_id: 101, lang: "en", label: "English", url: "/media/test/subtitles.en.vtt", is_default: false },
   { id: 3, episode_id: 103, lang: "ru", label: "Русские", url: "/media/test/subtitles.ru.vtt", is_default: true },
 ];
-const visibleEpisodeIds = new Set(EPISODES.filter((e) => e.license_status !== "none").map((e) => e.id));
+const LICENSES = ["none", "own", "licensed", "open_license"];
+const EPISODE_COLUMNS = ["anilist_id", "number", "title", "duration_sec", "license_status", "hls_url", "attribution", "attribution_url"];
+const SUBTITLE_COLUMNS = ["episode_id", "lang", "label", "url", "is_default"];
+let episodeSeq = 1000;
+let subtitleSeq = 1000;
+const isAdminUser = (user) => profiles.get(user?.id)?.role === "admin";
+const denied = (res, table) => send(res, 403, { code: "42501", message: `permission denied for table ${table}`, details: null, hint: null });
+
+/** Проверки таблицы episodes (упрощённо, как check-ограничения миграции серий). */
+function episodeError(row) {
+  if (!Number.isSafeInteger(row.anilist_id) || row.anilist_id < 1) return "23514";
+  if (!Number.isSafeInteger(row.number) || row.number < 1) return "23514";
+  if (!LICENSES.includes(row.license_status)) return "23514";
+  if (row.duration_sec != null && !(Number.isSafeInteger(row.duration_sec) && row.duration_sec > 0)) return "23514";
+  if (row.license_status !== "none" && !row.hls_url) return "23514";
+  if (EPISODES.some((e) => e.id !== row.id && e.anilist_id === row.anilist_id && e.number === row.number)) return "23505";
+  return null;
+}
+
+function subtitleError(row) {
+  if (!EPISODES.some((e) => e.id === row.episode_id)) return "23503";
+  if (typeof row.lang !== "string" || !row.lang || !row.label || !row.url) return "23514";
+  if (SUBTITLES.some((s) => s.id !== row.id && s.episode_id === row.episode_id && s.lang === row.lang)) return "23505";
+  return null;
+}
+
+const constraintError = (res, code) =>
+  send(res, code === "23505" ? 409 : 400, {
+    code,
+    message: code === "23505" ? "duplicate key value violates unique constraint" : "violates constraint",
+    details: null,
+    hint: null,
+  });
+
+/**
+ * Серии и субтитры (миграция 20261110120000_admin): читать черновики (none) и менять может только admin;
+ * остальным — как раньше, только серии с правами. Выход серии с правами рассылает уведомления (триггеры episodes).
+ */
+async function handleCatalogTable(req, res, url, table) {
+  const user = userByToken(req);
+  const admin = isAdminUser(user);
+  const isEpisodes = table === "episodes";
+  const store = isEpisodes ? EPISODES : SUBTITLES;
+  const published = new Set(EPISODES.filter((e) => e.license_status !== "none").map((e) => e.id));
+  const readable = (row) => admin || published.has(isEpisodes ? row.id : row.episode_id);
+  if (req.method === "GET") return handleReadOnly(req, res, url, store.filter(readable));
+  if (!admin) return denied(res, table);
+
+  const params = [...url.searchParams.entries()];
+  const columns = isEpisodes ? EPISODE_COLUMNS : SUBTITLE_COLUMNS;
+  const validate = isEpisodes ? episodeError : subtitleError;
+
+  if (req.method === "POST") {
+    const item = await readJson(req);
+    if (Array.isArray(item) || Object.keys(item).some((key) => !columns.includes(key))) return denied(res, table);
+    const row = isEpisodes
+      ? { id: (episodeSeq += 1), title: null, duration_sec: null, license_status: "none", hls_url: null, attribution: null, attribution_url: null, ...item }
+      : { id: (subtitleSeq += 1), is_default: false, ...item };
+    const code = validate(row);
+    if (code) return constraintError(res, code);
+    store.push(row);
+    if (isEpisodes && row.license_status !== "none") releaseEpisode({ anilist_id: row.anilist_id, number: row.number });
+    return respondRows(req, res, url, 201, [row]);
+  }
+
+  if (req.method === "PATCH") {
+    const patch = await readJson(req);
+    const fixed = isEpisodes ? "anilist_id" : "episode_id";
+    if (Object.keys(patch).some((key) => !columns.includes(key) || key === fixed)) return denied(res, table);
+    const targets = store.filter((row) => matches(row, params));
+    for (const row of targets) {
+      const code = validate({ ...row, ...patch });
+      if (code) return constraintError(res, code);
+    }
+    for (const row of targets) {
+      const wasDraft = isEpisodes && row.license_status === "none";
+      Object.assign(row, patch);
+      if (wasDraft && row.license_status !== "none") releaseEpisode({ anilist_id: row.anilist_id, number: row.number });
+    }
+    return respondRows(req, res, url, 200, targets);
+  }
+
+  if (req.method === "DELETE") {
+    const targets = store.filter((row) => matches(row, params));
+    for (const row of targets) {
+      store.splice(store.indexOf(row), 1);
+      // on delete cascade: субтитры уходят вместе с серией.
+      if (isEpisodes) for (const sub of SUBTITLES.filter((s) => s.episode_id === row.id)) SUBTITLES.splice(SUBTITLES.indexOf(sub), 1);
+    }
+    return respondRows(req, res, url, 200, targets);
+  }
+  return send(res, 405, { message: "method not allowed in mock" });
+}
 
 function handleReadOnly(req, res, url, rows) {
   if (req.method !== "GET") return send(res, 401, { code: "42501", message: "permission denied" });
@@ -834,7 +945,46 @@ async function handleNotificationPrefs(req, res, url) {
   return pgError(res, 403, "42501", "permission denied for table notification_prefs");
 }
 
+/** admin_actions (миграция 20261110120000_admin): журнал видит и пишет только admin; эффект — как private.admin_apply. */
+const adminActions = [];
+
+async function handleAdminActions(req, res, url) {
+  const user = userByToken(req);
+  if (!user) return pgError(res, 401, "42501", "permission denied for table admin_actions");
+  if (req.method === "GET") {
+    const rows = isAdminUser(user) ? adminActions.filter((row) => matches(row, [...url.searchParams.entries()])) : [];
+    const limit = Number(url.searchParams.get("limit") ?? Infinity);
+    const sorted = sortRows(rows, url.searchParams.get("order")).slice(0, limit);
+    return sendRows(req, res, 200, sorted.map((row) => pick(row, url.searchParams.get("select"))));
+  }
+  if (req.method !== "POST") return pgError(res, 403, "42501", "permission denied for table admin_actions");
+  const item = await readJson(req);
+  if (Object.keys(item).some((key) => !["action", "target_user_id", "new_role"].includes(key))) {
+    return pgError(res, 403, "42501", "permission denied for table admin_actions");
+  }
+  if (!isAdminUser(user)) return pgError(res, 403, "42501", "not_admin");
+  if (item.action !== "set_role") return pgError(res, 422, "PT422", "unknown_action");
+  if (!["user", "moderator", "admin"].includes(item.new_role)) return pgError(res, 422, "PT422", "invalid_role_change");
+  if (item.target_user_id === user.id) return pgError(res, 422, "PT422", "own_role");
+  const target = profiles.get(item.target_user_id);
+  if (!target) return pgError(res, 422, "PT422", "user_not_found");
+  if (target.role === item.new_role) return pgError(res, 422, "PT422", "role_unchanged");
+  const row = {
+    id: adminActions.length + 1,
+    admin_id: user.id,
+    action: "set_role",
+    target_user_id: target.id,
+    old_role: target.role,
+    new_role: item.new_role,
+    created_at: nextCommentTime(),
+  };
+  target.role = item.new_role;
+  adminActions.push(row);
+  return respondRows(req, res, url, 201, [row]);
+}
+
 async function handleRest(req, res, path, url) {
+  if (path === "/rest/v1/admin_actions") return handleAdminActions(req, res, url);
   if (path === "/rest/v1/notifications") return handleNotifications(req, res, url);
   if (path === "/rest/v1/notification_prefs") return handleNotificationPrefs(req, res, url);
   if (path === "/rest/v1/comments") return handleComments(req, res, url);
@@ -843,8 +993,8 @@ async function handleRest(req, res, path, url) {
   if (path === "/rest/v1/user_bans") return handleBans(req, res, url);
   if (path === "/rest/v1/moderation_actions") return handleModerationActions(req, res, url);
   if (path === "/rest/v1/watch_progress") return handleProgress(req, res, url);
-  if (path === "/rest/v1/episodes") return handleReadOnly(req, res, url, EPISODES.filter((e) => e.license_status !== "none"));
-  if (path === "/rest/v1/subtitles") return handleReadOnly(req, res, url, SUBTITLES.filter((s) => visibleEpisodeIds.has(s.episode_id)));
+  if (path === "/rest/v1/episodes") return handleCatalogTable(req, res, url, "episodes");
+  if (path === "/rest/v1/subtitles") return handleCatalogTable(req, res, url, "subtitles");
   if (path === "/rest/v1/anime_list") return handleAnimeList(req, res, url);
   if (path === "/rest/v1/anime_rating_stats") return handleRatingStats(req, res, url);
   if (path !== "/rest/v1/profiles") return send(res, 404, { code: "PGRST205", message: "not in mock" });
@@ -852,8 +1002,10 @@ async function handleRest(req, res, path, url) {
   if (req.method === "GET") {
     const params = [...url.searchParams.entries()];
     const limit = Number(url.searchParams.get("limit") ?? Infinity);
-    const rows = [...profiles.values()]
-      .filter((row) => matches(row, params))
+    const rows = sortRows(
+      [...profiles.values()].filter((row) => matches(row, params)),
+      url.searchParams.get("order"),
+    )
       .slice(0, limit)
       .map((row) => pick(row, url.searchParams.get("select")));
     return send(res, 200, rows);
@@ -895,6 +1047,22 @@ const MODERATOR = { email: "moderator@e2e.test", password: "Sakura-2026!", usern
   users.set(moderator.email, moderator);
   createProfile(moderator);
   profiles.get(moderator.id).role = "moderator";
+}
+
+// Администратор для E2E (первого администратора в базе назначает владелец — DEVELOPMENT.md).
+const ADMIN = { email: "admin@e2e.test", password: "Sakura-2026!", username: "admin_e2e" };
+{
+  const admin = {
+    id: randomUUID(),
+    email: ADMIN.email,
+    password: ADMIN.password,
+    metadata: { username: ADMIN.username },
+    confirmed: true,
+    created_at: new Date().toISOString(),
+  };
+  users.set(admin.email, admin);
+  createProfile(admin);
+  profiles.get(admin.id).role = "admin";
 }
 
 createServer(async (req, res) => {
