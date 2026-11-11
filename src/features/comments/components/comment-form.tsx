@@ -86,10 +86,15 @@ export function CommentForm({
         setError(result.message);
         return;
       }
-      setBody("");
-      setSpoiler(false);
-      if (result.comment) onCreated?.(result.comment);
-      onDone?.();
+      // После await обновления уже не считаются частью перехода — возвращаем их в него: форма закрывается
+      // одним кадром с деревом после refresh(). Иначе между «ответ показан» и приходом свежего списка
+      // (у него новый key — ветки создаются заново) открытая следом форма ответа пропадала вместе с текстом.
+      startTransition(() => {
+        setBody("");
+        setSpoiler(false);
+        if (result.comment) onCreated?.(result.comment);
+        onDone?.();
+      });
     });
   };
 
