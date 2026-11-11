@@ -3,6 +3,7 @@ import { Suspense } from "react";
 
 import { siteConfig } from "@/config/site";
 import { UserMenu, UserMenuFallback } from "@/features/auth/components/user-menu";
+import { NotificationBell } from "@/features/notifications/components/notification-bell";
 
 import { MainNav } from "./main-nav";
 
@@ -27,6 +28,10 @@ export function SiteHeader() {
 
         <div className="flex items-center gap-1 sm:gap-2">
           <MainNav />
+          {/* Колокольчик — своя динамическая «дырка»: гостю не рендерится, поэтому без заглушки. */}
+          <Suspense fallback={null}>
+            <NotificationBell />
+          </Suspense>
           <Suspense fallback={<UserMenuFallback />}>
             <UserMenu />
           </Suspense>

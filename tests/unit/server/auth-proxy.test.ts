@@ -14,7 +14,7 @@ afterEach(() => vi.unstubAllEnvs());
 
 describe("proxy: страницы аккаунта", () => {
   // Supabase в unit-тестах не настроен → пользователя нет (гость).
-  it.each(["/account", "/account/settings", "/auth/update-password"])("гость на %s → /login?next=…", async (path) => {
+  it.each(["/account", "/account/settings", "/auth/update-password", "/notifications"])("гость на %s → /login?next=…", async (path) => {
     const response = await proxy(request(`${path}?tab=1`));
     expect(response.status).toBe(307);
     const location = new URL(response.headers.get("location")!);
