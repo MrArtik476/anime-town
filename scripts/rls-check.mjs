@@ -875,6 +875,77 @@ try {
   const logDelete = await AD.client.from("admin_actions").delete().eq("id", promote.data?.id ?? -1).select("id");
   check("админ не удаляет журнал", blocked(logDelete), rows(logDelete));
 
+  // ---- модерация из админки (этап 6b, ADR-028): администратор читает журнал, все жалобы и все баны, снимает бан ----
+  // Новых политик нет: private.is_moderator() включает роль admin. Проверяем, что этого хватает и что лишнего не открыто.
+  {
+    const MB = await makeUser("mb");
+    const MC = await makeUser("mc");
+    const probe = await insertComment(MC.client, {});
+    const probeReport = await report(MB.client, probe.data?.id ?? -1);
+    const probeBan = await act(M.client, { action: "ban", target_user_id: MB.id, ban_duration: "7d", reason: "проба 6b" });
+    if (probe.error || probeReport.error || probeBan.error) {
+      throw new Error(`подготовка блока 6b: ${code(probe)} / ${code(probeReport)} / ${code(probeBan)}`);
+    }
+    const banRows = (client) => client.from("user_bans").select("id, revoked_at, revoked_by").eq("user_id", MB.id);
+    const reportRows = (client) => client.from("comment_reports").select("id, status").eq("reporter_id", MB.id);
+    const logRows = (client) => client.from("moderation_actions").select("id, action, moderator_id").eq("target_user_id", MB.id);
+
+    const adLog = await logRows(AD.client);
+    check(
+      "админ читает журнал модераторов",
+      adLog.data?.length === 1 && adLog.data[0].action === "ban" && adLog.data[0].moderator_id === M.id,
+      rows(adLog),
+    );
+    check("админ читает чужой бан", (await banRows(AD.client)).data?.length === 1);
+    check("админ читает чужую жалобу", (await reportRows(AD.client)).data?.length === 1);
+    // Принято в ADR-028: политика этапа 5 не менялась, модератор журнал читает (страница админки ему при этом 404).
+    check("модератор читает журнал — принятое поведение (ADR-028)", (await logRows(M2.client)).data?.length === 1);
+    check(
+      "пользователь не читает журнал, чужой бан и чужую жалобу",
+      blocked(await logRows(A.client)) && blocked(await banRows(A.client)) && blocked(await reportRows(A.client)),
+    );
+    check(
+      "гость не читает журнал, баны и жалобы",
+      blocked(await logRows(anon)) && blocked(await banRows(anon)) && blocked(await reportRows(anon)),
+    );
+
+    const banId = (await banRows(admin)).data?.[0]?.id ?? -1;
+    const directRevoke = await AD.client.from("user_bans").update({ revoked_at: new Date().toISOString() }).eq("id", banId).select("id");
+    check(
+      "админ не снимает бан правкой user_bans напрямую",
+      blocked(directRevoke) && (await banRows(admin)).data?.[0]?.revoked_at === null,
+      rows(directRevoke),
+    );
+    const reportEdit = await AD.client.from("comment_reports").update({ status: "dismissed" }).eq("id", probeReport.data.id).select("id");
+    const reportDelete = await AD.client.from("comment_reports").delete().eq("id", probeReport.data.id).select("id");
+    check(
+      "админ не правит и не удаляет жалобы напрямую",
+      blocked(reportEdit) && blocked(reportDelete) && (await reportRows(admin)).data?.[0]?.status === "open",
+      `${rows(reportEdit)} / ${rows(reportDelete)}`,
+    );
+    const logDeleteMod = await AD.client.from("moderation_actions").delete().eq("id", probeBan.data.id).select("id");
+    check("админ не удаляет строки журнала модерации", blocked(logDeleteMod) && (await logRows(admin)).data?.length === 1, rows(logDeleteMod));
+    const forged = await AD.client.from("moderation_actions").insert({ action: "unban", target_user_id: MB.id, moderator_id: M.id }).select("id");
+    check(
+      "админ не подставляет чужого модератора в журнал",
+      !!forged.error && (await banRows(admin)).data?.[0]?.revoked_at === null,
+      code(forged),
+    );
+
+    const adUnban = await act(AD.client, { action: "unban", target_user_id: MB.id });
+    const afterUnbanRow = (await banRows(admin)).data?.[0];
+    const unbanLog = (await logRows(admin)).data?.filter((row) => row.action === "unban") ?? [];
+    check(
+      "админ снимает бан: снят им, одна строка журнала от его имени",
+      !adUnban.error &&
+        !!afterUnbanRow?.revoked_at &&
+        afterUnbanRow.revoked_by === AD.id &&
+        unbanLog.length === 1 &&
+        unbanLog[0].moderator_id === AD.id,
+      code(adUnban),
+    );
+  }
+
   // ---- итог по данным ----
   const { data: bRow } = await admin.from("anime_list").select("score, status").eq("user_id", B.id).single();
   const { data: aProf } = await admin.from("profiles").select("role").eq("id", A.id).single();
