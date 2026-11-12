@@ -46,9 +46,9 @@ async function Overview() {
           </Link>
         </li>
         <li>
-          <Link href="/moderation" className={cardClass}>
+          <Link href="/admin/moderation" className={cardClass}>
             <h2 className="font-heading text-lg font-semibold">Модерация</h2>
-            <p className="mt-2 text-sm text-muted-foreground">Жалобы на комментарии и действующие баны.</p>
+            <p className="mt-2 text-sm text-muted-foreground">Журнал действий модераторов, все жалобы и баны.</p>
           </Link>
         </li>
       </ul>
@@ -58,7 +58,7 @@ async function Overview() {
 
 export default function AdminPage() {
   return (
-    <AdminShell section="overview" title="Админ-панель" description="Серии, субтитры и роли пользователей.">
+    <AdminShell section="overview" title="Админ-панель" description="Серии, субтитры, роли пользователей и модерация.">
       <Overview />
     </AdminShell>
   );

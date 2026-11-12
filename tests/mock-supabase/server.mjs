@@ -160,6 +160,8 @@ function ilikeRegExp(pattern) {
 function condition(row, column, filter) {
   const dot = filter.indexOf(".");
   const op = filter.slice(0, dot);
+  // not.<op>.<value> — отрицание (например, revoked_at=not.is.null).
+  if (op === "not") return !condition(row, column, filter.slice(dot + 1));
   const value = unquote(filter.slice(dot + 1));
   const cell = row[column];
   switch (op) {
@@ -168,10 +170,13 @@ function condition(row, column, filter) {
     case "neq":
       return String(cell) !== value;
     case "lt":
-    case "gt": {
+    case "lte":
+    case "gt":
+    case "gte": {
       if (cell == null) return false;
       const [a, b] = comparable(String(cell), value);
-      return op === "lt" ? a < b : a > b;
+      if (a === b) return op === "lte" || op === "gte";
+      return op.startsWith("lt") ? a < b : a > b;
     }
     case "is":
       return value === "null" ? cell == null : String(cell) === value;
@@ -593,6 +598,14 @@ function changeReplyCount(rootId, delta) {
   if (root) root.reply_count = Math.max(root.reply_count + delta, 0);
 }
 
+/** GET списка: фильтры, order, limit и select — как отдаёт PostgREST. */
+function sendList(req, res, url, rows) {
+  const limit = Number(url.searchParams.get("limit") ?? Infinity);
+  const found = rows.filter((row) => matches(row, [...url.searchParams.entries()]));
+  const page = sortRows(found, url.searchParams.get("order")).slice(0, limit);
+  return sendRows(req, res, 200, page.map((row) => pick(row, url.searchParams.get("select"))));
+}
+
 function respondRows(req, res, url, status, rows) {
   const prefer = req.headers.prefer ?? "";
   if (req.method !== "GET" && !prefer.includes("return=representation")) return send(res, status === 200 ? 204 : status);
@@ -712,8 +725,7 @@ async function handleReports(req, res, url) {
   const user = userByToken(req);
   if (!user) return pgError(res, 401, "42501", "permission denied for table comment_reports");
   if (req.method === "GET") {
-    const rows = commentReports.filter((row) => (row.reporter_id === user.id || isModerator(user)) && matches(row, [...url.searchParams.entries()]));
-    return sendRows(req, res, 200, rows.map((row) => pick(row, url.searchParams.get("select"))));
+    return sendList(req, res, url, commentReports.filter((row) => row.reporter_id === user.id || isModerator(user)));
   }
   if (req.method !== "POST") return pgError(res, 403, "42501", "permission denied for table comment_reports");
   const item = await readJson(req);
@@ -749,7 +761,10 @@ const BAN_DAYS = { "1d": 1, "7d": 7, "30d": 30 };
 
 async function handleModerationActions(req, res, url) {
   const user = userByToken(req);
-  if (!user || req.method !== "POST") return pgError(res, 401, "42501", "permission denied for table moderation_actions");
+  if (!user) return pgError(res, 401, "42501", "permission denied for table moderation_actions");
+  // Журнал читают модератор и администратор; остальным RLS отдаёт пустой список.
+  if (req.method === "GET") return sendList(req, res, url, isModerator(user) ? moderationActions : []);
+  if (req.method !== "POST") return pgError(res, 403, "42501", "permission denied for table moderation_actions");
   if (!isModerator(user)) return pgError(res, 403, "42501", "not_moderator");
   const item = await readJson(req);
   const now = new Date().toISOString();
@@ -815,8 +830,7 @@ async function handleModerationActions(req, res, url) {
 function handleBans(req, res, url) {
   const user = userByToken(req);
   if (!user || req.method !== "GET") return pgError(res, 401, "42501", "permission denied for table user_bans");
-  const rows = userBans.filter((row) => (row.user_id === user.id || isModerator(user)) && matches(row, [...url.searchParams.entries()]));
-  return sendRows(req, res, 200, rows.map((row) => pick(row, url.searchParams.get("select"))));
+  return sendList(req, res, url, userBans.filter((row) => row.user_id === user.id || isModerator(user)));
 }
 
 /**

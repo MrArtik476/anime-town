@@ -29,13 +29,22 @@ export async function UserMenu() {
   return (
     <>
       {(role === "moderator" || role === "admin") && (
-        <Link href="/moderation" className={cn(itemClass, "text-muted-foreground hover:bg-muted hover:text-foreground")}>
+        <Link
+          href="/moderation"
+          className={cn(
+            itemClass,
+            "text-muted-foreground hover:bg-muted hover:text-foreground",
+            // У администратора в шапке на значок больше: на телефоне (360 px) ряд не помещался и страница
+            // прокручивалась вбок. Ему «Модерация» доступна из админки, поэтому на узком экране ссылка скрыта.
+            role === "admin" && "hidden sm:inline-flex",
+          )}
+        >
           <ShieldCheck aria-hidden className="size-4" />
           <span className="sr-only md:not-sr-only">Модерация</span>
         </Link>
       )}
       {role === "admin" && (
-        <Link href="/admin" className={cn(itemClass, "text-muted-foreground hover:bg-muted hover:text-foreground")}>
+        <Link href="/admin" className={cn(itemClass, "px-2 text-muted-foreground hover:bg-muted hover:text-foreground sm:px-3")}>
           <Settings aria-hidden className="size-4" />
           <span className="sr-only md:not-sr-only">Админка</span>
         </Link>

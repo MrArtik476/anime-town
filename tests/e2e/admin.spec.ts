@@ -174,4 +174,25 @@ test.describe("Админ-панель", () => {
     await member.close();
     await admin.close();
   });
+
+  test("роль, выбранная до загрузки скриптов страницы, сохраняется", async ({ browser }) => {
+    const member = await secondUser(browser, "as");
+    const admin = await adminPage(browser);
+    const { page } = admin;
+    // Медленная сеть: HTML уже на экране, а скрипты приходят через 3 с — выбор делается до подключения React.
+    await page.route(/_next\/static\/.*\.js/, async (route) => {
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+      await route.continue();
+    });
+    await page.goto(`/admin/users?q=${member.user.username}`, { waitUntil: "commit" });
+    const row = page.getByRole("listitem", { name: `Пользователь @${member.user.username}` }).first();
+    await expect(row).toBeVisible();
+    await row.getByLabel(`Роль @${member.user.username}`).selectOption({ label: "Модератор" });
+
+    await row.getByRole("button", { name: "Сохранить роль" }).click();
+    await expect(page.getByRole("main").getByRole("status").filter({ hasText: `@${member.user.username} — теперь модератор` })).toBeVisible();
+
+    await member.close();
+    await admin.close();
+  });
 });
