@@ -1,11 +1,11 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 
 import { Button } from "@/components/ui/button";
 
 import { setUserRole } from "../actions";
-import { type Role, ROLE_LABELS, ROLES } from "../model";
+import { parseRole, type Role, ROLE_LABELS, ROLES } from "../model";
 import type { AdminUser } from "../queries";
 
 function UserRow({ user, self, notify }: { user: AdminUser; self: boolean; notify: (text: string, error?: boolean) => void }) {
@@ -17,6 +17,14 @@ function UserRow({ user, self, notify }: { user: AdminUser; self: boolean; notif
     setRole(user.role);
   }
   const [pending, startTransition] = useTransition();
+
+  // Роль могли выбрать до подключения React (медленная сеть): в поле она уже стоит, а в состоянии — прежняя,
+  // и кнопка «Сохранить роль» осталась бы неактивной. После подключения берём выбор из самого поля.
+  const selectRef = useRef<HTMLSelectElement>(null);
+  useEffect(() => {
+    const chosen = parseRole(selectRef.current?.value);
+    if (chosen) setRole(chosen);
+  }, []);
 
   const save = () => {
     startTransition(async () => {
@@ -34,6 +42,7 @@ function UserRow({ user, self, notify }: { user: AdminUser; self: boolean; notif
       ) : (
         <span className="ml-auto flex items-center gap-2">
           <select
+            ref={selectRef}
             aria-label={`Роль @${user.username}`}
             value={role}
             disabled={pending}
