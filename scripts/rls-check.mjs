@@ -33,6 +33,8 @@ const tag = randomUUID().slice(0, 8);
 // Несуществующий тайтл для временных серий (удаляются в finally).
 const PROBE_ANIME_ID = 999_999_990;
 const created = [];
+// Файлы бакета subtitles, загруженные проверкой (удаляются в finally).
+const filesToRemove = [];
 
 async function makeUser(letter) {
   const email = `rls-probe-${letter}-${tag}@example.invalid`;
@@ -1083,6 +1085,93 @@ try {
     check("админ не правит и не удаляет журнал тайтлов", blocked(logEditTitle) && blocked(logDeleteTitle), `${rows(logEditTitle)} / ${rows(logDeleteTitle)}`);
   }
 
+  // ---- субтитры в закрытом Storage (этап 6d, миграция subtitles_storage, ADR-030) ----
+  {
+    const VTT = Buffer.from("WEBVTT\n\n00:00.000 --> 00:01.000\nПроба\n");
+    const bucket = (client) => client.storage.from("subtitles");
+    const objectName = () => `${randomUUID()}.vtt`;
+    // CDN Storage кэширует ответ на файл для каждого входа (cf-cache-status: HIT даже при max-age=0): повторное
+    // чтение тем же пользователем отдало бы старый ответ. Одноразовый параметр обходит кэш — проверяются политики.
+    // Так же читает файл сайт (src/app/media/subtitles/[file]/route.ts).
+    const reads = async (client, name) => {
+      const token = (await client.auth.getSession()).data.session?.access_token ?? PUBLISHABLE;
+      const response = await fetch(`${URL}/storage/v1/object/authenticated/subtitles/${name}?fresh=${randomUUID()}`, {
+        headers: { apikey: PUBLISHABLE, Authorization: `Bearer ${token}` },
+      });
+      return response.ok && (await response.text()).startsWith("WEBVTT");
+    };
+    const upload = (client, name, body = VTT, contentType = "text/vtt") => bucket(client).upload(name, body, { contentType, upsert: false });
+    const storageCode = (response) => response.error?.statusCode ?? response.error?.message ?? "ok";
+
+    const published = await AD.client
+      .from("episodes")
+      .insert({ anilist_id: PROBE_ANIME_ID, number: 98, license_status: "own", hls_url: "/media/test/master.m3u8" })
+      .select("id")
+      .single();
+    const draft = await AD.client
+      .from("episodes")
+      .insert({ anilist_id: PROBE_ANIME_ID, number: 99, license_status: "none", hls_url: "/media/test/master.m3u8" })
+      .select("id")
+      .single();
+    if (published.error || draft.error) throw new Error(`подготовка блока 6d: ${code(published)} / ${code(draft)}`);
+    const publishedFile = objectName();
+    const draftFile = objectName();
+    const orphanFile = objectName();
+    filesToRemove.push(publishedFile, draftFile, orphanFile);
+
+    // Загружает и удаляет только администратор.
+    const userUpload = await upload(A.client, objectName());
+    const modUpload = await upload(M.client, objectName());
+    const anonUpload = await upload(anon, objectName());
+    check("пользователь, модератор и гость не загружают субтитры", !!userUpload.error && !!modUpload.error && !!anonUpload.error, `${storageCode(userUpload)} / ${storageCode(modUpload)} / ${storageCode(anonUpload)}`);
+    const adminUploads = await Promise.all([upload(AD.client, publishedFile), upload(AD.client, draftFile), upload(AD.client, orphanFile)]);
+    check("админ загружает субтитры", adminUploads.every((response) => !response.error), adminUploads.map(storageCode).join(" / "));
+    const tooBig = await upload(AD.client, objectName(), Buffer.alloc(600 * 1024, 0x41));
+    const png = await upload(AD.client, objectName(), Buffer.from([0x89, 0x50, 0x4e, 0x47]), "image/png");
+    check("бакет отклоняет файл больше 512 КБ и не-текст", !!tooBig.error && !!png.error, `${storageCode(tooBig)} / ${storageCode(png)}`);
+
+    // Файл без строки subtitles — только администратору.
+    check("файл без строки субтитров читает только админ", (await reads(AD.client, orphanFile)) && !(await reads(A.client, orphanFile)) && !(await reads(anon, orphanFile)));
+
+    const rowsCreated = await AD.client.from("subtitles").insert([
+      { episode_id: published.data.id, lang: "ru", label: "Русские", url: `/media/subtitles/${publishedFile}` },
+      { episode_id: draft.data.id, lang: "ru", label: "Русские", url: `/media/subtitles/${draftFile}` },
+    ]);
+    if (rowsCreated.error) throw new Error(`подготовка блока 6d: ${code(rowsCreated)}`);
+    check("файл опубликованной серии читают гость и пользователь", (await reads(anon, publishedFile)) && (await reads(A.client, publishedFile)));
+    check(
+      "файл черновика не читают гость, пользователь и модератор; админ читает",
+      !(await reads(anon, draftFile)) && !(await reads(A.client, draftFile)) && !(await reads(M.client, draftFile)) && (await reads(AD.client, draftFile)),
+    );
+    const publicLink = await fetch(admin.storage.from("subtitles").getPublicUrl(publishedFile).data.publicUrl);
+    check("публичной ссылки на файл нет", !publicLink.ok, `HTTP ${publicLink.status}`);
+    // Список бакета подчиняется той же политике чтения: гость видит только файлы опубликованных серий.
+    const listed = await bucket(anon).list("", { limit: 1000 });
+    const listedNames = (listed.data ?? []).map((file) => file.name);
+    check(
+      "в списке бакета гость не видит файлы черновика и без строки",
+      !listed.error && !listedNames.includes(draftFile) && !listedNames.includes(orphanFile),
+      `${storageCode(listed)}, файлов: ${listedNames.length}`,
+    );
+
+    // Скрытие тайтла закрывает и файл.
+    const hideProbe = await AD.client.from("title_actions").insert({ anilist_id: PROBE_ANIME_ID, action: "hide" });
+    const hiddenReads = [await reads(anon, publishedFile), await reads(A.client, publishedFile)];
+    check("после скрытия тайтла гость и пользователь не читают файл", !hideProbe.error && !hiddenReads.some(Boolean), `${code(hideProbe)}, читают: ${hiddenReads.join("/")}`);
+    const showProbe = await AD.client.from("title_actions").insert({ anilist_id: PROBE_ANIME_ID, action: "show" });
+    check("после возврата тайтла гость снова читает файл", !showProbe.error && (await reads(anon, publishedFile)), code(showProbe));
+
+    // Удаляет только администратор; перезаписи нет.
+    const userRemove = await bucket(A.client).remove([publishedFile]);
+    const modRemove = await bucket(M.client).remove([publishedFile]);
+    check("пользователь и модератор не удаляют файл", (await reads(AD.client, publishedFile)) && (userRemove.data?.length ?? 0) === 0 && (modRemove.data?.length ?? 0) === 0);
+    const overwrite = await bucket(AD.client).upload(publishedFile, VTT, { contentType: "text/vtt", upsert: true });
+    check("перезаписать файл нельзя даже админу", !!overwrite.error, storageCode(overwrite));
+    const adminRemove = await bucket(AD.client).remove([orphanFile]);
+    const orphanAfter = await reads(AD.client, orphanFile);
+    check("админ удаляет файл", adminRemove.data?.length === 1 && !orphanAfter, `${storageCode(adminRemove)}, удалено: ${adminRemove.data?.length}, читается: ${orphanAfter}`);
+  }
+
   // ---- итог по данным ----
   const { data: bRow } = await admin.from("anime_list").select("score, status").eq("user_id", B.id).single();
   const { data: aProf } = await admin.from("profiles").select("role").eq("id", A.id).single();
@@ -1104,6 +1193,7 @@ try {
   await admin.from("title_actions").delete().eq("anilist_id", PROBE_ANIME_ID);
   await admin.from("anime_hidden").delete().eq("anilist_id", PROBE_ANIME_ID);
   await admin.from("anime_localizations").delete().eq("anilist_id", PROBE_ANIME_ID);
+  if (filesToRemove.length) await admin.storage.from("subtitles").remove(filesToRemove);
   for (const id of created) {
     const { data: files } = await admin.storage.from("avatars").list(id);
     if (files?.length) await admin.storage.from("avatars").remove(files.map((file) => `${id}/${file.name}`));
@@ -1112,6 +1202,9 @@ try {
   }
   let filesLeft = 0;
   for (const id of created) filesLeft += (await admin.storage.from("avatars").list(id)).data?.length ?? 0;
+  // Файлов проверки в бакете subtitles быть не должно; бакета нет (миграция не применена) — не считаем.
+  const { data: subtitleObjects } = await admin.storage.from("subtitles").list("", { limit: 1000 });
+  const subtitleFilesLeft = (subtitleObjects ?? []).filter((file) => filesToRemove.includes(file.name)).length;
   const { count: profilesLeft } = await admin
     .from("profiles")
     .select("id", { count: "exact", head: true })
@@ -1129,11 +1222,11 @@ try {
     .from("notifications")
     .select("id", { count: "exact", head: true })
     .eq("anilist_id", PROBE_ANIME_ID);
-  const leftover = [profilesLeft, filesLeft, episodesLeft, commentsLeft, notificationsLeft];
+  const leftover = [profilesLeft, filesLeft, subtitleFilesLeft, episodesLeft, commentsLeft, notificationsLeft];
   // Ненулевой (или не прочитанный) остаток — ⚠️, и прогон падает: временные данные не должны копиться в проекте.
   const clean = leftover.every((count) => count === 0);
   results.push(
-    `${clean ? "🧹" : "⚠️"} осталось: профилей ${profilesLeft ?? "—"}, файлов аватаров ${filesLeft}, временных серий ${episodesLeft ?? "—"}, комментариев ${commentsLeft ?? "—"}, уведомлений ${notificationsLeft ?? "—"}`,
+    `${clean ? "🧹" : "⚠️"} осталось: профилей ${profilesLeft ?? "—"}, файлов аватаров ${filesLeft}, файлов субтитров ${subtitleFilesLeft}, временных серий ${episodesLeft ?? "—"}, комментариев ${commentsLeft ?? "—"}, уведомлений ${notificationsLeft ?? "—"}`,
   );
   console.log(results.join("\n"));
   if (results.some((line) => line.startsWith("❌") || line.startsWith("⚠️"))) process.exitCode = 1;
