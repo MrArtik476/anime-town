@@ -12,11 +12,18 @@ export type LocalizationRecord = {
   /** Провайдер машинного перевода (deepl, yandex…); null для описаний Shikimori. */
   translator: string | null;
   shikimoriUrl: string | null;
+  /** Название и описание, заданные администратором (этап 6c): важнее автоматических; null — их нет. */
+  manualTitleRu: string | null;
+  manualDescriptionRu: string | null;
   /** Когда строку последний раз сверяли с источниками (ISO). */
   updatedAt: string;
 };
 
-export type LocalizationInput = Omit<LocalizationRecord, "updatedAt">;
+/**
+ * То, что пишут сверка с Shikimori и машинный перевод. Ручных полей здесь нет намеренно:
+ * импорт не может их ни задать, ни стереть — их меняет только администратор через журнал title_actions.
+ */
+export type LocalizationInput = Omit<LocalizationRecord, "updatedAt" | "manualTitleRu" | "manualDescriptionRu">;
 
 /** Хранилище переводов: Supabase в продакшене, память процесса — без Supabase (разработка, E2E). */
 export interface LocalizationStore {

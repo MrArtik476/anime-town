@@ -573,6 +573,7 @@ function withMachineTranslation(anilistId, malId, previous, translation, sourceH
   };
 }
 function needsMachineTranslation(record, originalHash) {
+  if (record?.manualDescriptionRu) return false;
   if (record?.descriptionRu && record.source === "shikimori") return false;
   return !(record?.descriptionRu && record.source === "machine" && record.sourceHash === originalHash);
 }
@@ -713,11 +714,18 @@ async function fetchShikimoriByMalIds(malIds, options) {
   return result;
 }
 
-// src/lib/supabase/admin.ts
+// src/lib/supabase/public.ts
 import { createClient as createSupabaseClient } from "npm:@supabase/supabase-js@2.118.0";
 
 // src/lib/supabase/env.ts
 var PLACEHOLDER = /<|xxx/;
+function getSupabaseEnv() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const publishableKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
+  if (!url || !publishableKey) return null;
+  if (PLACEHOLDER.test(url) || PLACEHOLDER.test(publishableKey)) return null;
+  return { url, publishableKey };
+}
 function getSupabaseAdminEnv() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -743,11 +751,21 @@ function isPublishableKey(key) {
   }
 }
 
+// src/lib/supabase/public.ts
+function createPublicClient() {
+  const env = getSupabaseEnv();
+  if (!env) return null;
+  return createSupabaseClient(env.url, env.publishableKey, {
+    auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false }
+  });
+}
+
 // src/lib/supabase/admin.ts
+import { createClient as createSupabaseClient2 } from "npm:@supabase/supabase-js@2.118.0";
 function createAdminClient() {
   const env = getSupabaseAdminEnv();
   if (!env) return null;
-  return createSupabaseClient(env.url, env.serviceRoleKey, {
+  return createSupabaseClient2(env.url, env.serviceRoleKey, {
     auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false }
   });
 }
@@ -765,6 +783,8 @@ function rowToRecord(row) {
     sourceHash: row.source_hash,
     translator: row.translator,
     shikimoriUrl: row.shikimori_url,
+    manualTitleRu: row.manual_title_ru,
+    manualDescriptionRu: row.manual_description_ru,
     updatedAt: row.updated_at
   };
 }
@@ -779,6 +799,7 @@ function recordToRow(record) {
     source_hash: record.sourceHash,
     translator: record.translator,
     shikimori_url: record.shikimoriUrl
+    // Колонок manual_* здесь нет: upsert меняет только перечисленные колонки, ручной текст остаётся как был.
     // Триггер выставляет updated_at при UPDATE; при INSERT — значение по умолчанию.
   };
 }
@@ -814,7 +835,7 @@ function createMemoryStore(now = () => /* @__PURE__ */ new Date()) {
     },
     async upsertMany(input) {
       for (const record of input) {
-        records.set(record.anilistId, { ...record, updatedAt: now().toISOString() });
+        records.set(record.anilistId, { ...record, manualTitleRu: null, manualDescriptionRu: null, updatedAt: now().toISOString() });
       }
     }
   };
@@ -831,10 +852,39 @@ function getLocalizationStore() {
 // src/lib/localization/service.ts
 async function readLocalizations(ids, store = getLocalizationStore()) {
   try {
-    return { records: await store.getMany(ids), ok: true };
+    const records = await store.getMany(ids);
+    if (store.kind === "memory") await addManualText(records, ids);
+    return { records, ok: true };
   } catch (error) {
     console.error("[localization] хранилище недоступно", error);
     return { records: /* @__PURE__ */ new Map(), ok: false };
+  }
+}
+async function addManualText(records, ids) {
+  const client = ids.length ? createPublicClient() : null;
+  if (!client) return;
+  const { data, error } = await client.from("anime_localizations").select("anilist_id, manual_title_ru, manual_description_ru").in("anilist_id", ids).or("manual_title_ru.not.is.null,manual_description_ru.not.is.null");
+  if (error) throw new Error(`anime_localizations: ${error.message}`);
+  for (const row of data) {
+    const manual = { manualTitleRu: row.manual_title_ru, manualDescriptionRu: row.manual_description_ru };
+    const existing = records.get(row.anilist_id);
+    records.set(
+      row.anilist_id,
+      existing ? { ...existing, ...manual } : {
+        anilistId: row.anilist_id,
+        malId: null,
+        titleRu: null,
+        synonymsRu: [],
+        descriptionRu: null,
+        source: null,
+        sourceHash: null,
+        translator: null,
+        shikimoriUrl: null,
+        ...manual,
+        // Строки перевода ещё нет — «давно не сверяли», чтобы сверка с Shikimori не откладывалась.
+        updatedAt: (/* @__PURE__ */ new Date(0)).toISOString()
+      }
+    );
   }
 }
 async function loadLocalizations(entries, store = getLocalizationStore(), stored) {
@@ -849,7 +899,15 @@ async function loadLocalizations(entries, store = getLocalizationStore(), stored
       (entry) => mergeShikimori(entry.id, entry.malId, records.get(entry.id), shikimori.get(entry.malId))
     );
     const now = (/* @__PURE__ */ new Date()).toISOString();
-    for (const record of updated) records.set(record.anilistId, { ...record, updatedAt: now });
+    for (const record of updated) {
+      const previous = records.get(record.anilistId);
+      records.set(record.anilistId, {
+        ...record,
+        manualTitleRu: previous?.manualTitleRu ?? null,
+        manualDescriptionRu: previous?.manualDescriptionRu ?? null,
+        updatedAt: now
+      });
+    }
     try {
       await store.upsertMany(updated);
     } catch (error) {

@@ -87,11 +87,14 @@ export function FeaturedAnime({ anime }: { anime: FeaturedAnimeData }) {
               <p className="text-sm leading-relaxed text-muted-foreground">
                 {truncate(anime.description.text.replace(/\s+/g, " "), 260)}
               </p>
-              <p className="mt-1.5 text-xs text-muted-foreground/80">
-                {anime.description.source === "shikimori"
-                  ? "Описание: Shikimori"
-                  : machineTranslationLabel(anime.description.translator)}
-              </p>
+              {/* Описание, заданное администратором, — без подписи источника. */}
+              {anime.description.source !== "manual" && (
+                <p className="mt-1.5 text-xs text-muted-foreground/80">
+                  {anime.description.source === "shikimori"
+                    ? "Описание: Shikimori"
+                    : machineTranslationLabel(anime.description.translator)}
+                </p>
+              )}
             </div>
           )}
 

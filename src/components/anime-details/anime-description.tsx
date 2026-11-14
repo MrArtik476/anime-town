@@ -32,6 +32,8 @@ export function AnimeDescription({ description }: { description: Description | n
         {description.text}
       </p>
 
+      {/* Описание, заданное администратором, — без подписи источника. */}
+      {description.source !== "manual" && (
       <p className="mt-3 text-xs text-muted-foreground">
         {description.source === "shikimori" &&
           (description.sourceUrl ? (
@@ -52,6 +54,7 @@ export function AnimeDescription({ description }: { description: Description | n
         {description.source === "machine" && "Переведено автоматически с английского описания AniList."}
         {description.source === "anilist" && "Описание: AniList."}
       </p>
+      )}
     </>
   );
 }

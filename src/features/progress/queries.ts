@@ -1,5 +1,6 @@
 import { getCurrentUser } from "@/features/auth/session";
 import { getEpisodes } from "@/features/episodes/queries";
+import { getHiddenIds } from "@/lib/anime/hidden";
 import { createClient } from "@/lib/supabase/server";
 
 import { type ContinueItem, type ProgressRow, selectContinueItems } from "./model";
@@ -39,7 +40,9 @@ export async function getContinueWatching(limit = 8): Promise<ContinueItem[] | n
     console.error("[progress] список не загружен", error.code);
     return [];
   }
-  const rows: ProgressRow[] = data.map((row) => ({
+  // Скрытые администратором тайтлы смотреть нельзя — в «Продолжить просмотр» они не предлагаются.
+  const hidden = new Set(await getHiddenIds());
+  const rows: ProgressRow[] = data.filter((row) => !hidden.has(row.anilist_id)).map((row) => ({
     anilistId: row.anilist_id,
     episodeNumber: row.episode_number,
     position: row.position_sec,

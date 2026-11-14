@@ -83,12 +83,14 @@ export function withMachineTranslation(
  * (хеш совпал — повторно не переводим).
  */
 export function needsMachineTranslation(record: LocalizationRecord | undefined, originalHash: string): boolean {
+  // Описание задал администратор — перевод никто не увидит, символы DeepL не тратим.
+  if (record?.manualDescriptionRu) return false;
   if (record?.descriptionRu && record.source === "shikimori") return false;
   return !(record?.descriptionRu && record.source === "machine" && record.sourceHash === originalHash);
 }
 
 /**
- * Описание для показа: Shikimori → машинный перевод (если сделан с текущего английского текста) →
+ * Описание для показа: ручное (администратор) → Shikimori → машинный перевод (если сделан с текущего английского текста) →
  * английский оригинал AniList.
  */
 export function resolveDescription(
@@ -96,6 +98,7 @@ export function resolveDescription(
   record: LocalizationRecord | undefined,
   originalHash: string | null,
 ): AnimeDescription | null {
+  if (record?.manualDescriptionRu) return { language: "ru", source: "manual", text: record.manualDescriptionRu };
   if (record?.descriptionRu && record.source === "shikimori") {
     return { language: "ru", source: "shikimori", text: record.descriptionRu, sourceUrl: record.shikimoriUrl };
   }
@@ -106,11 +109,11 @@ export function resolveDescription(
 }
 
 /**
- * Названия: Shikimori → русский синоним AniList (уже в card.title) → английское/ромадзи.
+ * Названия: ручное (администратор) → Shikimori → русский синоним AniList (уже в card.title) → английское/ромадзи.
  * Прежнее основное название становится альтернативным, если оно не русское.
  */
 export function resolveTitles<T extends AnimeCard>(card: T, record: LocalizationRecord | undefined): T {
-  const titleRu = record?.titleRu;
+  const titleRu = record?.manualTitleRu ?? record?.titleRu;
   if (!titleRu || titleRu === card.title) return card;
   const altTitle = isRussianText(card.title) ? card.altTitle : card.title;
   return { ...card, title: titleRu, altTitle: altTitle === titleRu ? null : altTitle };
