@@ -307,6 +307,14 @@ async function handleAuth(req, res, path, url) {
 
 /** Ответ PostgREST: при .single() (Accept: vnd.pgrst.object+json) — объект или 406. */
 function sendRows(req, res, status, rows) {
+  // count=exact (select(…, { count: "exact", head: true }) — сводка админки): число в Content-Range, как у PostgREST;
+  // HEAD-запрос роутер передаёт обработчикам как GET с req.headOnly — тело не отправляется.
+  const counted = (req.headers.prefer ?? "").includes("count=exact") ? { "Content-Range": `${rows.length ? `0-${rows.length - 1}` : "*"}/${rows.length}` } : {};
+  if (req.headOnly) {
+    res.writeHead(status, { "Content-Type": "application/json; charset=utf-8", "X-Supabase-Api-Version": API_VERSION, ...counted });
+    return res.end();
+  }
+  if (Object.keys(counted).length) return send(res, status, rows, counted);
   if ((req.headers.accept ?? "").includes("vnd.pgrst.object")) {
     if (rows.length !== 1) return send(res, 406, { code: "PGRST116", message: "JSON object requested, multiple (or no) rows returned" });
     return send(res, status, rows[0]);
@@ -386,7 +394,63 @@ function handleRatingStats(req, res, url) {
 /** Storage: бакет avatars, загрузка и удаление — только в своей папке <user id>/…, публичное чтение. */
 const storage = new Map();
 
+/**
+ * Бакет subtitles (миграция subtitles_storage, ADR-030): закрытый, загружает и удаляет только администратор,
+ * читать файл можно, если читающему видна строка subtitles с адресом /media/subtitles/<имя> (как RLS subtitles:
+ * серия с правами, тайтл не скрыт); администратор читает все. Storage на «нет» и «нельзя» отвечает одинаково — 400.
+ */
+const subtitleFiles = new Map();
+const SUBTITLE_MAX_BYTES = 524288;
+const SUBTITLE_TYPES = ["text/vtt", "text/plain"];
+const subtitleNotFound = (res) => send(res, 400, { statusCode: "404", error: "not_found", message: "Object not found" });
+
+function subtitleReadable(user, name) {
+  if (isAdminUser(user)) return true;
+  const row = SUBTITLES.find((subtitle) => subtitle.url === `/media/subtitles/${name}`);
+  const episode = row && EPISODES.find((item) => item.id === row.episode_id);
+  return !!episode && episode.license_status !== "none" && !animeHidden.has(episode.anilist_id);
+}
+
+async function handleSubtitleStorage(req, res, path) {
+  const user = userByToken(req);
+  // Для E2E: сколько файлов в бакете (проверка, что неудачное сохранение и удаление не оставляют файлов).
+  if (req.method === "GET" && path === "/storage/v1/__mock/subtitles-count") return send(res, 200, { count: subtitleFiles.size });
+  const fileMatch = path.match(/^\/storage\/v1\/object\/(?:authenticated\/)?subtitles\/([^/]+)$/);
+  if (req.method === "GET" && fileMatch) {
+    const name = decodeURIComponent(fileMatch[1]);
+    const file = subtitleFiles.get(name);
+    if (!file || !subtitleReadable(user, name)) return subtitleNotFound(res);
+    res.writeHead(200, { "Content-Type": file.type, "Cache-Control": "private, max-age=3600" });
+    return res.end(file.body);
+  }
+  const rlsDenied = () => send(res, 403, { statusCode: "403", error: "Unauthorized", message: "new row violates row-level security policy" });
+  if (req.method === "POST" && fileMatch) {
+    if (!isAdminUser(user)) return rlsDenied();
+    const name = decodeURIComponent(fileMatch[1]);
+    const chunks = [];
+    for await (const chunk of req) chunks.push(chunk);
+    const body = Buffer.concat(chunks);
+    const type = String(req.headers["content-type"] ?? "").split(";")[0].trim();
+    if (body.length > SUBTITLE_MAX_BYTES) return send(res, 413, { statusCode: "413", error: "Payload too large", message: "The object exceeded the maximum allowed size" });
+    if (!SUBTITLE_TYPES.includes(type)) return send(res, 415, { statusCode: "415", error: "invalid_mime_type", message: `mime type ${type} is not supported` });
+    // Перезаписи нет: политики update в бакете нет.
+    if (subtitleFiles.has(name)) return send(res, 409, { statusCode: "409", error: "Duplicate", message: "The resource already exists" });
+    subtitleFiles.set(name, { body, type });
+    return send(res, 200, { Key: `subtitles/${name}`, Id: randomUUID() });
+  }
+  if (req.method === "DELETE" && path === "/storage/v1/object/subtitles") {
+    const { prefixes = [] } = await readJson(req);
+    if (!isAdminUser(user)) return send(res, 200, []);
+    const removed = prefixes.filter((name) => subtitleFiles.delete(name)).map((name) => ({ name }));
+    return send(res, 200, removed);
+  }
+  return send(res, 404, { message: `mock storage: ${req.method} ${path}` });
+}
+
 async function handleStorage(req, res, path) {
+  if (path.startsWith("/storage/v1/__mock/") || /^\/storage\/v1\/object\/(?:authenticated\/)?subtitles(?:\/|$)/.test(path)) {
+    return handleSubtitleStorage(req, res, path);
+  }
   const publicMatch = path.match(/^\/storage\/v1\/object\/public\/avatars\/(.+)$/);
   if (req.method === "GET" && publicMatch) {
     const file = storage.get(decodeURIComponent(publicMatch[1]));
@@ -1169,7 +1233,14 @@ createServer(async (req, res) => {
       return send(res, result.error ? 400 : 200, result);
     }
     if (path.startsWith("/auth/v1/")) return await handleAuth(req, res, path, url);
-    if (path.startsWith("/rest/v1/")) return await handleRest(req, res, path, url);
+    if (path.startsWith("/rest/v1/")) {
+      // HEAD (count без строк) — тот же GET с теми же правилами видимости; уведомления разбирают HEAD сами.
+      if (req.method === "HEAD" && path !== "/rest/v1/notifications") {
+        req.method = "GET";
+        req.headOnly = true;
+      }
+      return await handleRest(req, res, path, url);
+    }
     if (path.startsWith("/storage/v1/")) return await handleStorage(req, res, path);
     return send(res, 404, { message: "not found" });
   } catch (error) {

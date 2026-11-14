@@ -8,6 +8,7 @@ import { LICENSE_STATUSES, type LicenseStatus } from "@/features/player/source";
 import { deleteEpisode, deleteSubtitle, saveEpisode, saveSubtitle } from "../actions";
 import { durationToInput, LICENSE_LABELS, MAX_ATTRIBUTION, MAX_LABEL, MAX_TITLE } from "../model";
 import type { AdminEpisode, AdminSubtitle } from "../queries";
+import { MAX_SUBTITLE_BYTES, storedObjectName } from "../subtitle-file";
 import { adminInputClass } from "./styles";
 
 type Notify = (text: string, error?: boolean) => void;
@@ -171,15 +172,21 @@ function SubtitleForm({
   onSaved: (lang: string) => void;
   onCancel: () => void;
 }) {
+  // Уже загруженный в бакет файл: при изменении можно оставить его, не выбирая файл заново.
+  const stored = subtitle ? storedObjectName(subtitle.url) !== null : false;
   const [lang, setLang] = useState(subtitle?.lang ?? "ru");
   const [label, setLabel] = useState(subtitle?.label ?? "Русские");
-  const [url, setUrl] = useState(subtitle?.url ?? "");
+  const [source, setSource] = useState<"file" | "url">(subtitle && !stored ? "url" : "file");
+  const [url, setUrl] = useState(subtitle && !stored ? subtitle.url : "");
   const [isDefault, setIsDefault] = useState(subtitle?.isDefault ?? episode.subtitles.length === 0);
   const { error, pending, submit } = useSubmit(() => onSaved(lang.trim()));
+  const sourceName = useId();
 
-  const send = (event: React.FormEvent) => {
+  const send = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    submit(() => saveSubtitle(animeId, episode.id, subtitle?.id ?? null, { lang, label, url, isDefault }));
+    // Файл уходит вместе с полями формы одним действием: строка не сохранилась — сервер удалит загруженный файл.
+    const form = new FormData(event.currentTarget);
+    submit(() => saveSubtitle(animeId, episode.id, subtitle?.id ?? null, form));
   };
 
   return (
@@ -191,19 +198,96 @@ function SubtitleForm({
     >
       <div className="grid gap-3 sm:grid-cols-[6rem_1fr]">
         <Field label="Язык">
-          {(id) => <input id={id} required value={lang} placeholder="ru" onChange={(event) => setLang(event.target.value)} className={adminInputClass} />}
+          {(id) => (
+            <input id={id} name="lang" required value={lang} placeholder="ru" onChange={(event) => setLang(event.target.value)} className={adminInputClass} />
+          )}
         </Field>
         <Field label="Подпись в плеере">
-          {(id) => <input id={id} required value={label} maxLength={MAX_LABEL} onChange={(event) => setLabel(event.target.value)} className={adminInputClass} />}
+          {(id) => (
+            <input
+              id={id}
+              name="label"
+              required
+              value={label}
+              maxLength={MAX_LABEL}
+              onChange={(event) => setLabel(event.target.value)}
+              className={adminInputClass}
+            />
+          )}
         </Field>
       </div>
-      <Field label="Адрес файла субтитров" hint="Файл WebVTT (.vtt): https://… или /media/…">
-        {(id, hintId) => (
-          <input id={id} required value={url} aria-describedby={hintId} onChange={(event) => setUrl(event.target.value)} className={adminInputClass} />
-        )}
-      </Field>
+      <fieldset>
+        <legend className="mb-1 text-sm">Файл субтитров</legend>
+        <div className="flex flex-wrap gap-x-5 gap-y-1 text-sm">
+          {(
+            [
+              ["file", "С компьютера"],
+              ["url", "По адресу"],
+            ] as const
+          ).map(([value, text]) => (
+            <label key={value} className="flex min-h-9 items-center gap-2">
+              <input
+                type="radio"
+                name="source"
+                value={value}
+                checked={source === value}
+                onChange={() => setSource(value)}
+                aria-controls={`${sourceName}-${value}`}
+                className="size-4 accent-primary"
+              />
+              {text}
+            </label>
+          ))}
+        </div>
+      </fieldset>
+      {source === "file" ? (
+        <div id={`${sourceName}-file`}>
+          <Field
+            label={stored ? "Новый файл (необязательно)" : "Файл .vtt"}
+            hint={
+              stored
+                ? "Сейчас загружен файл. Выберите новый, чтобы заменить, или сохраните без него."
+                : `WebVTT (.vtt), до ${MAX_SUBTITLE_BYTES / 1024} КБ, первая строка — WEBVTT. Файл видят только те, кому видна серия.`
+            }
+          >
+            {(id, hintId) => (
+              <input
+                id={id}
+                name="file"
+                type="file"
+                accept=".vtt,text/vtt"
+                required={!stored}
+                aria-describedby={hintId}
+                className="block w-full max-w-full text-sm file:mr-3 file:rounded-md file:border file:border-border file:bg-background file:px-3 file:py-1.5 file:text-sm file:text-foreground hover:file:bg-muted"
+              />
+            )}
+          </Field>
+        </div>
+      ) : (
+        <div id={`${sourceName}-url`}>
+          <Field label="Адрес файла субтитров" hint="Файл WebVTT (.vtt): https://… или /media/…">
+            {(id, hintId) => (
+              <input
+                id={id}
+                name="url"
+                required
+                value={url}
+                aria-describedby={hintId}
+                onChange={(event) => setUrl(event.target.value)}
+                className={adminInputClass}
+              />
+            )}
+          </Field>
+        </div>
+      )}
       <label className="flex items-center gap-2 text-sm">
-        <input type="checkbox" checked={isDefault} onChange={(event) => setIsDefault(event.target.checked)} className="size-4 accent-primary" />
+        <input
+          type="checkbox"
+          name="isDefault"
+          checked={isDefault}
+          onChange={(event) => setIsDefault(event.target.checked)}
+          className="size-4 accent-primary"
+        />
         Включать по умолчанию
       </label>
       {error && (
@@ -340,6 +424,15 @@ function EpisodeItem({
                 <span className="font-mono text-xs">{subtitle.lang}</span>
                 <span>{subtitle.label}</span>
                 {subtitle.isDefault && <span className="text-xs text-muted-foreground">по умолчанию</span>}
+                <a
+                  href={subtitle.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  aria-label={`Открыть файл субтитров ${subtitle.lang}`}
+                  className="rounded-sm text-xs text-muted-foreground underline underline-offset-2 outline-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/60"
+                >
+                  {storedObjectName(subtitle.url) ? "загруженный файл" : "по адресу"}
+                </a>
                 <span className="ml-auto flex gap-2">
                   <Button
                     type="button"

@@ -58,6 +58,25 @@ test.describe("Админ-панель", () => {
     await admin.close();
   });
 
+  test("сводка по сайту: все числа загружены, карточки ведут в разделы", async ({ browser }) => {
+    const admin = await adminPage(browser);
+    await admin.page.goto("/admin");
+    const stats = admin.page.getByRole("region", { name: "Сводка по сайту" });
+    await expect(stats).toBeVisible();
+    for (const label of ["Пользователи", "Серии на сайте", "Скрытые тайтлы", "Комментарии за 7 дней", "Открытые жалобы", "Активные баны"]) {
+      const item = stats.getByRole("listitem").filter({ hasText: label });
+      await expect(item).toHaveCount(1);
+      // «—» — число не загрузилось (мок не ответил на count-запрос).
+      await expect(item).not.toContainText("—");
+      await expect(item).toContainText(/\d/);
+    }
+    await expect(stats.getByRole("listitem").filter({ hasText: "Пользователи" })).toContainText("за 7 дней");
+    await expect(admin.page.getByRole("main").getByRole("alert")).toHaveCount(0);
+    await stats.getByRole("link", { name: /Открытые жалобы/ }).click();
+    await expect(admin.page).toHaveURL(/\/admin\/moderation\/reports$/);
+    await admin.close();
+  });
+
   test("серия: черновик скрыт от зрителей, публикация и удаление сразу видны на сайте", async ({ page, browser }) => {
     const admin = await adminPage(browser);
     await admin.page.goto("/admin/episodes/20");
@@ -120,6 +139,8 @@ test.describe("Админ-панель", () => {
       const subtitleForm = page.getByRole("form", { name: "Новые субтитры серии 1" });
       await expect(subtitleForm).toBeVisible();
       await input(page, "Язык").fill("ru");
+      // По умолчанию — файл с компьютера (admin-subtitles.spec.ts); здесь — готовый файл по адресу.
+      await subtitleForm.getByRole("radio", { name: "По адресу" }).check();
       await input(page, "Адрес файла субтитров").fill("/media/test/subtitles.ru.vtt");
       await subtitleForm.getByRole("button", { name: "Добавить субтитры" }).click();
       return subtitleForm;

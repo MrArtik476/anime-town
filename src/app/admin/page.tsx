@@ -3,7 +3,10 @@ import Link from "next/link";
 
 import { requireAdmin } from "@/features/admin/access";
 import { AdminShell } from "@/features/admin/components/admin-shell";
+import { SiteStatsGrid } from "@/features/admin/components/site-stats";
 import { getAdminTitles, getStaff } from "@/features/admin/queries";
+import { getSiteStats } from "@/features/admin/stats";
+import { statsFailed } from "@/features/admin/stats-model";
 
 export const metadata: Metadata = {
   title: "Админ-панель",
@@ -15,7 +18,7 @@ const cardClass =
 
 async function Overview() {
   await requireAdmin();
-  const [titles, staff] = await Promise.all([getAdminTitles(), getStaff()]);
+  const [titles, staff, stats] = await Promise.all([getAdminTitles(), getStaff(), getSiteStats()]);
   const episodes = titles.items.reduce((sum, title) => sum + title.total, 0);
   const drafts = titles.items.reduce((sum, title) => sum + title.total - title.published, 0);
   const moderators = staff.items.filter((user) => user.role === "moderator").length;
@@ -23,11 +26,13 @@ async function Overview() {
 
   return (
     <>
-      {(titles.failed || staff.failed) && (
+      {(titles.failed || staff.failed || statsFailed(stats)) && (
         <p role="alert" className="mb-4 text-sm text-destructive">
           Не удалось загрузить часть данных — обновите страницу
         </p>
       )}
+      <SiteStatsGrid stats={stats} />
+      <h2 className="mb-3 font-heading text-base font-semibold">Разделы</h2>
       <ul className="grid gap-4 sm:grid-cols-2">
         <li>
           <Link href="/admin/titles" className={cardClass}>
