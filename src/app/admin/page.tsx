@@ -30,6 +30,12 @@ async function Overview() {
       )}
       <ul className="grid gap-4 sm:grid-cols-2">
         <li>
+          <Link href="/admin/titles" className={cardClass}>
+            <h2 className="font-heading text-lg font-semibold">Тайтлы</h2>
+            <p className="mt-2 text-sm text-muted-foreground">Русские названия и описания, скрытие тайтла с сайта.</p>
+          </Link>
+        </li>
+        <li>
           <Link href="/admin/episodes" className={cardClass}>
             <h2 className="font-heading text-lg font-semibold">Серии</h2>
             <p className="mt-2 text-sm text-muted-foreground">
@@ -58,7 +64,7 @@ async function Overview() {
 
 export default function AdminPage() {
   return (
-    <AdminShell section="overview" title="Админ-панель" description="Серии, субтитры, роли пользователей и модерация.">
+    <AdminShell section="overview" title="Админ-панель" description="Тайтлы, серии, субтитры, роли пользователей и модерация.">
       <Overview />
     </AdminShell>
   );

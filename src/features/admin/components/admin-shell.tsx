@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 
 const SECTIONS = [
   { key: "overview", href: "/admin", label: "Обзор" },
+  { key: "titles", href: "/admin/titles", label: "Тайтлы" },
   { key: "episodes", href: "/admin/episodes", label: "Серии" },
   { key: "users", href: "/admin/users", label: "Пользователи" },
   { key: "moderation", href: "/admin/moderation", label: "Модерация" },

@@ -38,10 +38,11 @@ const failed = <T,>(): Listing<T> => ({ items: [], failed: true });
 
 export const fallbackTitleName = (animeId: number) => `Тайтл AniList #${animeId}`;
 
-/** Русское название из хранилища переводов (без запроса к AniList); нет — «Тайтл AniList #id». */
+/** Русское название (ручное важнее автоматического) из хранилища переводов (без запроса к AniList); нет — «Тайтл AniList #id». */
 export async function getTitleName(animeId: number): Promise<string> {
   const { records } = await readLocalizations([animeId]);
-  return records.get(animeId)?.titleRu ?? fallbackTitleName(animeId);
+  const record = records.get(animeId);
+  return record?.manualTitleRu ?? record?.titleRu ?? fallbackTitleName(animeId);
 }
 
 /** Тайтлы, у которых есть серии: всего и опубликовано. */
@@ -56,7 +57,7 @@ export async function getAdminTitles(): Promise<Listing<AdminTitle>> {
   const titles = summarizeTitles(data);
   const { records } = titles.length ? await readLocalizations(titles.map((title) => title.animeId)) : { records: new Map() };
   return {
-    items: titles.map((title) => ({ ...title, name: records.get(title.animeId)?.titleRu ?? fallbackTitleName(title.animeId) })),
+    items: titles.map((title) => ({ ...title, name: records.get(title.animeId)?.manualTitleRu ?? records.get(title.animeId)?.titleRu ?? fallbackTitleName(title.animeId) })),
     failed: false,
   };
 }

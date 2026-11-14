@@ -30,6 +30,9 @@ async function TitleEpisodes({ params }: Props) {
         <Link href={`/anime/${animeId}`} className="text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline">
           Страница тайтла
         </Link>
+        <Link href={`/admin/titles/${animeId}`} className="text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline">
+          Название, описание, видимость
+        </Link>
       </div>
       <div className="mt-4">
         {episodes.failed ? (
