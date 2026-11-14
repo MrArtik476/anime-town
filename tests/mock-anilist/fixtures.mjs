@@ -156,6 +156,9 @@ export const SEARCH_ONLY_MEDIA = [
   // Связан с 42: скрытый тайтл не должен показываться среди связанных.
   media(43, { title: { romaji: "Tsunagari Probe", english: "Relation Probe", native: null }, relations: { edges: [related(42, "Hiding Probe")] } }),
   media(44, { title: { romaji: "Risuto Probe", english: "List Probe", native: null } }),
+  // Субтитры в закрытом бакете (admin-subtitles.spec.ts): 45 — загрузка и замена, 46 — черновик и скрытие.
+  media(45, { title: { romaji: "Jimaku Probe", english: "Subtitle Probe", native: null } }),
+  media(46, { title: { romaji: "Himitsu Jimaku Probe", english: "Private Subtitle Probe", native: null } }),
 ];
 
 export const GENRES = [
