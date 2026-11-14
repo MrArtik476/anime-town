@@ -9,7 +9,7 @@
 
 import { createServer } from "node:http";
 
-import { GENRES, MEDIA } from "./fixtures.mjs";
+import { GENRES, MEDIA, SEARCH_ONLY_MEDIA } from "./fixtures.mjs";
 
 const PORT = Number(process.env.MOCK_ANILIST_PORT ?? 4010);
 
@@ -40,7 +40,9 @@ const visible = (excluded = []) =>
 
 function catalog(vars) {
   const search = vars.search?.toLowerCase();
-  let items = visible(vars.excludedGenres).filter((m) => {
+  // Тайтлы «только поиском» (тесты админки) участвуют лишь в запросах с текстом поиска.
+  const pool = search ? [...visible(vars.excludedGenres), ...SEARCH_ONLY_MEDIA] : visible(vars.excludedGenres);
+  let items = pool.filter((m) => {
     if (search) {
       const names = [m.title.romaji, m.title.english, m.title.native, ...m.synonyms].filter(Boolean);
       if (!names.some((name) => name.toLowerCase().includes(search))) return false;
@@ -98,7 +100,7 @@ function handle(query, vars, res) {
       return json(res, 200, { data: { GenreCollection: GENRES } });
     case "AnimeDetails": {
       if (vars.id === 500500) return json(res, 500, { errors: [{ message: "Internal", status: 500 }] });
-      const found = MEDIA.find((m) => m.id === vars.id);
+      const found = [...MEDIA, ...SEARCH_ONLY_MEDIA].find((m) => m.id === vars.id);
       if (!found) return json(res, 404, { errors: [{ message: "Not Found.", status: 404 }], data: { Media: null } });
       return json(res, 200, { data: { Media: found } });
     }
