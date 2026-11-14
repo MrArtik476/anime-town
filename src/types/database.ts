@@ -59,6 +59,24 @@ export type Database = {
           },
         ]
       }
+      anime_hidden: {
+        Row: {
+          anilist_id: number
+          created_at: string
+          title: string | null
+        }
+        Insert: {
+          anilist_id: number
+          created_at?: string
+          title?: string | null
+        }
+        Update: {
+          anilist_id?: number
+          created_at?: string
+          title?: string | null
+        }
+        Relationships: []
+      }
       anime_list: {
         Row: {
           anilist_id: number
@@ -126,6 +144,8 @@ export type Database = {
           anilist_id: number
           description_ru: string | null
           mal_id: number | null
+          manual_description_ru: string | null
+          manual_title_ru: string | null
           shikimori_url: string | null
           source: string | null
           source_hash: string | null
@@ -138,6 +158,8 @@ export type Database = {
           anilist_id: number
           description_ru?: string | null
           mal_id?: number | null
+          manual_description_ru?: string | null
+          manual_title_ru?: string | null
           shikimori_url?: string | null
           source?: string | null
           source_hash?: string | null
@@ -150,6 +172,8 @@ export type Database = {
           anilist_id?: number
           description_ru?: string | null
           mal_id?: number | null
+          manual_description_ru?: string | null
+          manual_title_ru?: string | null
           shikimori_url?: string | null
           source?: string | null
           source_hash?: string | null
@@ -549,6 +573,56 @@ export type Database = {
             columns: ["episode_id"]
             isOneToOne: false
             referencedRelation: "episodes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      title_actions: {
+        Row: {
+          action: string
+          admin_id: string | null
+          anilist_id: number
+          anime_title: string | null
+          created_at: string
+          description_ru: string | null
+          id: number
+          old_description_ru: string | null
+          old_title_ru: string | null
+          reason: string | null
+          title_ru: string | null
+        }
+        Insert: {
+          action: string
+          admin_id?: string | null
+          anilist_id: number
+          anime_title?: string | null
+          created_at?: string
+          description_ru?: string | null
+          id?: never
+          old_description_ru?: string | null
+          old_title_ru?: string | null
+          reason?: string | null
+          title_ru?: string | null
+        }
+        Update: {
+          action?: string
+          admin_id?: string | null
+          anilist_id?: number
+          anime_title?: string | null
+          created_at?: string
+          description_ru?: string | null
+          id?: never
+          old_description_ru?: string | null
+          old_title_ru?: string | null
+          reason?: string | null
+          title_ru?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "title_actions_admin_id_fkey"
+            columns: ["admin_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
         ]
