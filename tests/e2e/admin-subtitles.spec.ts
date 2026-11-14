@@ -7,7 +7,9 @@ import { expect, routeImages, test, uniqueClientIp } from "./fixtures";
 // Субтитры в закрытом бакете subtitles (этап 6d, ADR-030) против мока Supabase: мок повторяет политики бакета
 // (читать файл можно, если видна строка субтитров), настоящие проверяет npm run rls:check.
 // Тайтлы 45 и 46 — только для этого файла. Тесты идут по очереди: оба считают файлы в общем бакете мока.
-test.describe.configure({ mode: "serial" });
+// Лимит — как у остальных длинных тестов админки (admin-titles, admin-moderation): при полном параллельном прогоне
+// два контекста и ~20 шагов не укладывались в общие 30 с — больше всего уходило на закрытие контекста (сохранение trace).
+test.describe.configure({ mode: "serial", timeout: 120_000 });
 
 const ADMIN = { email: "admin@e2e.test", password: "Sakura-2026!" };
 const VIDEO = "/media/test/master.m3u8";
