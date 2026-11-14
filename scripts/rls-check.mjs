@@ -946,6 +946,143 @@ try {
     );
   }
 
+  // ---- тайтлы (этап 6c, миграция admin_titles, ADR-029): ручной текст, скрытие, журнал title_actions ----
+  {
+    const titleAct = (client, fields) =>
+      client.from("title_actions").insert({ anilist_id: PROBE_ANIME_ID, ...fields }).select("id, admin_id, old_title_ru, old_description_ru").single();
+    const titleLog = async () => (await admin.from("title_actions").select("id, action").eq("anilist_id", PROBE_ANIME_ID)).data ?? [];
+    const manualRow = async () =>
+      (await admin.from("anime_localizations").select("title_ru, manual_title_ru, manual_description_ru").eq("anilist_id", PROBE_ANIME_ID).maybeSingle()).data;
+    const hiddenFor = async (client) => (await client.from("anime_hidden").select("anilist_id").eq("anilist_id", PROBE_ANIME_ID)).data?.length ?? -1;
+
+    // Писать может только администратор и только через журнал.
+    const userText = await titleAct(A.client, { action: "set_text", title_ru: "Чужое" });
+    check("пользователь не правит тайтл — 42501", userText.error?.code === "42501", code(userText));
+    const modHide = await titleAct(M.client, { action: "hide" });
+    check("модератор не скрывает тайтл — 42501", modHide.error?.code === "42501", code(modHide));
+    const anonHide = await anon.from("title_actions").insert({ anilist_id: PROBE_ANIME_ID, action: "hide" });
+    check("гость не скрывает тайтл", !!anonHide.error, code(anonHide));
+    const directHide = await AD.client.from("anime_hidden").insert({ anilist_id: PROBE_ANIME_ID });
+    check("админ не пишет в anime_hidden напрямую", !!directHide.error && (await hiddenFor(admin)) === 0, code(directHide));
+    check("после отказов журнал пуст", (await titleLog()).length === 0);
+
+    // Ручной текст.
+    const setText = await titleAct(AD.client, { action: "set_text", title_ru: "  Проба названия  ", description_ru: "Проба описания." });
+    const afterSet = await manualRow();
+    check(
+      "админ задаёт название и описание: пробелы убраны, журнал от его имени",
+      !setText.error &&
+        afterSet?.manual_title_ru === "Проба названия" &&
+        afterSet?.manual_description_ru === "Проба описания." &&
+        setText.data?.admin_id === AD.id &&
+        setText.data?.old_title_ru === null,
+      code(setText),
+    );
+    const directText = await AD.client.from("anime_localizations").update({ manual_title_ru: "В обход" }).eq("anilist_id", PROBE_ANIME_ID).select("anilist_id");
+    check("админ не правит ручной текст в обход журнала", blocked(directText) && (await manualRow())?.manual_title_ru === "Проба названия", rows(directText));
+
+    // Главное: запись импорта (сверка с Shikimori, машинный перевод — те же колонки, что пишет приложение) не трогает ручной текст.
+    const importRow = {
+      anilist_id: PROBE_ANIME_ID,
+      mal_id: 999999,
+      title_ru: "Название Shikimori",
+      synonyms_ru: ["Синоним"],
+      description_ru: "Описание Shikimori.",
+      source: "shikimori",
+      source_hash: null,
+      translator: null,
+      shikimori_url: "https://shikimori.io/animes/999999",
+    };
+    const imported = await admin.from("anime_localizations").upsert([importRow], { onConflict: "anilist_id" });
+    const afterImport = await manualRow();
+    check(
+      "импорт Shikimori не затирает ручной текст",
+      !imported.error &&
+        afterImport?.title_ru === "Название Shikimori" &&
+        afterImport?.manual_title_ru === "Проба названия" &&
+        afterImport?.manual_description_ru === "Проба описания.",
+      code(imported),
+    );
+    const machineRow = { ...importRow, description_ru: "Машинный перевод.", source: "machine", source_hash: "a".repeat(64), translator: "deepl", shikimori_url: null };
+    const translated = await admin.from("anime_localizations").upsert([machineRow], { onConflict: "anilist_id" });
+    const afterMachine = await manualRow();
+    check(
+      "машинный перевод не затирает ручной текст",
+      !translated.error && afterMachine?.manual_title_ru === "Проба названия" && afterMachine?.manual_description_ru === "Проба описания.",
+      code(translated),
+    );
+    check(
+      "гость читает ручной текст (публичный каталог)",
+      (await anon.from("anime_localizations").select("manual_title_ru").eq("anilist_id", PROBE_ANIME_ID)).data?.[0]?.manual_title_ru === "Проба названия",
+    );
+
+    const sameText = await titleAct(AD.client, { action: "set_text", title_ru: "Проба названия", description_ru: "Проба описания." });
+    check("тот же текст — PT422, журнал не вырос", sameText.error?.code === "PT422" && (await titleLog()).length === 1, code(sameText));
+    const longText = await titleAct(AD.client, { action: "set_text", title_ru: "я".repeat(301) });
+    check("слишком длинное название — PT422", longText.error?.code === "PT422" && (await manualRow())?.manual_title_ru === "Проба названия", code(longText));
+    const forgedAdmin = await AD.client.from("title_actions").insert({ anilist_id: PROBE_ANIME_ID, action: "hide", admin_id: M.id }).select("id");
+    check("админ не подставляет чужого автора в журнал", !!forgedAdmin.error && (await hiddenFor(admin)) === 0, code(forgedAdmin));
+    const resetText = await titleAct(AD.client, { action: "set_text", title_ru: "", description_ru: null });
+    const afterReset = await manualRow();
+    check(
+      "пустые поля возвращают автоматический текст, прежний — в журнале",
+      !resetText.error &&
+        afterReset?.manual_title_ru === null &&
+        afterReset?.manual_description_ru === null &&
+        afterReset?.title_ru === "Название Shikimori" &&
+        resetText.data?.old_title_ru === "Проба названия",
+      code(resetText),
+    );
+
+    // Скрытие: серии и уведомления.
+    const TU = await makeUser("tu");
+    const listed = await TU.client.from("anime_list").insert({ user_id: TU.id, anilist_id: PROBE_ANIME_ID, status: "watching", title: "Проба" });
+    const shown = await AD.client
+      .from("episodes")
+      .insert({ anilist_id: PROBE_ANIME_ID, number: 95, license_status: "own", hls_url: "/media/test/master.m3u8" })
+      .select("id")
+      .single();
+    if (listed.error || shown.error) throw new Error(`подготовка блока 6c: ${code(listed)} / ${code(shown)}`);
+    const sees = async (client) => (await client.from("episodes").select("id").eq("id", shown.data.id)).data?.length === 1;
+    const noticesOf = async () =>
+      (await admin.from("notifications").select("episode_number").eq("user_id", TU.id).eq("anilist_id", PROBE_ANIME_ID).eq("type", "new_episode")).data ?? [];
+    check("до скрытия серию видят гость и пользователь, уведомление создано", (await sees(anon)) && (await sees(A.client)) && (await noticesOf()).length === 1);
+
+    const hide = await titleAct(AD.client, { action: "hide", reason: "проба 6c", anime_title: "Проба" });
+    check("админ скрывает тайтл", !hide.error && (await hiddenFor(admin)) === 1, code(hide));
+    check("список скрытых читают гость и пользователь", (await hiddenFor(anon)) === 1 && (await hiddenFor(A.client)) === 1);
+    check(
+      "серию скрытого тайтла не видят гость, пользователь и модератор; админ видит",
+      !(await sees(anon)) && !(await sees(A.client)) && !(await sees(M.client)) && (await sees(AD.client)),
+    );
+    const hideAgain = await titleAct(AD.client, { action: "hide" });
+    check("повторное скрытие — PT422", hideAgain.error?.code === "PT422", code(hideAgain));
+    await admin.from("notifications").delete().eq("user_id", TU.id);
+    const hiddenEpisode = await AD.client.from("episodes").insert({ anilist_id: PROBE_ANIME_ID, number: 96, license_status: "own", hls_url: "/media/test/master.m3u8" });
+    check("новая серия скрытого тайтла не создаёт уведомление", !hiddenEpisode.error && (await noticesOf()).length === 0, code(hiddenEpisode));
+
+    const show = await titleAct(AD.client, { action: "show" });
+    check("админ возвращает тайтл: серию снова видит гость", !show.error && (await hiddenFor(admin)) === 0 && (await sees(anon)), code(show));
+    const showAgain = await titleAct(AD.client, { action: "show" });
+    check("возврат не скрытого — PT422", showAgain.error?.code === "PT422", code(showAgain));
+    const visibleEpisode = await AD.client.from("episodes").insert({ anilist_id: PROBE_ANIME_ID, number: 97, license_status: "own", hls_url: "/media/test/master.m3u8" });
+    check("после возврата новая серия снова уведомляет", !visibleEpisode.error && (await noticesOf()).length === 1, code(visibleEpisode));
+
+    // Журнал: 4 выполненных действия (set_text, сброс, hide, show); читает только администратор, менять нельзя.
+    const log = await titleLog();
+    check("в журнале только выполненные действия", log.length === 4, `строк: ${log.length}`);
+    check("админ читает журнал тайтлов", (await AD.client.from("title_actions").select("id").eq("anilist_id", PROBE_ANIME_ID)).data?.length === 4);
+    check(
+      "модератор, пользователь и гость журнал тайтлов не читают",
+      blocked(await M.client.from("title_actions").select("id")) &&
+        blocked(await A.client.from("title_actions").select("id")) &&
+        blocked(await anon.from("title_actions").select("id")),
+    );
+    const logEditTitle = await AD.client.from("title_actions").update({ reason: "подмена" }).eq("id", hide.data?.id ?? -1).select("id");
+    const logDeleteTitle = await AD.client.from("title_actions").delete().eq("id", hide.data?.id ?? -1).select("id");
+    check("админ не правит и не удаляет журнал тайтлов", blocked(logEditTitle) && blocked(logDeleteTitle), `${rows(logEditTitle)} / ${rows(logDeleteTitle)}`);
+  }
+
   // ---- итог по данным ----
   const { data: bRow } = await admin.from("anime_list").select("score, status").eq("user_id", B.id).single();
   const { data: aProf } = await admin.from("profiles").select("role").eq("id", A.id).single();
@@ -962,6 +1099,11 @@ try {
   if (created.length) await admin.from("moderation_actions").delete().in("moderator_id", created);
   // То же для журнала администратора (нет таблицы — миграция не применена, ошибку покажут проверки выше).
   if (created.length) await admin.from("admin_actions").delete().in("admin_id", created);
+  // Тайтлы (миграция admin_titles): журнал, отметка «скрыт» и строка ручного текста пробы.
+  if (created.length) await admin.from("title_actions").delete().in("admin_id", created);
+  await admin.from("title_actions").delete().eq("anilist_id", PROBE_ANIME_ID);
+  await admin.from("anime_hidden").delete().eq("anilist_id", PROBE_ANIME_ID);
+  await admin.from("anime_localizations").delete().eq("anilist_id", PROBE_ANIME_ID);
   for (const id of created) {
     const { data: files } = await admin.storage.from("avatars").list(id);
     if (files?.length) await admin.storage.from("avatars").remove(files.map((file) => `${id}/${file.name}`));

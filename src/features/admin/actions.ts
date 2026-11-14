@@ -2,34 +2,16 @@
 
 import { refresh, updateTag } from "next/cache";
 
-import { getCurrentProfile } from "@/features/auth/session";
 import type { ActionResult } from "@/features/comments/actions";
 import { episodesTag } from "@/features/episodes/queries";
-import { getSupabaseEnv } from "@/lib/supabase/env";
-import { createClient } from "@/lib/supabase/server";
 
+import { adminClient, INVALID, isResult } from "./admin-client";
 import { adminErrorMessage, type AdminTable, parseAnimeId, parseEpisodeInput, parseRole, parseSubtitleInput } from "./model";
-
-const INVALID: ActionResult = { ok: false, message: "Неверные данные" };
-const FORBIDDEN: ActionResult = { ok: false, message: "Недостаточно прав" };
-const UNAVAILABLE: ActionResult = { ok: false, message: "Админ-панель временно недоступна" };
 
 const parseId = (raw: unknown): number | null => (typeof raw === "number" && Number.isSafeInteger(raw) && raw > 0 ? raw : null);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-type Supabase = Awaited<ReturnType<typeof createClient>>;
 type DbError = { code?: string; message?: string } | null;
-
-/**
- * Право проверяет RLS (private.is_admin(), миграция admin) — роль здесь читается только ради понятного ответа
- * без запроса. Клиент — от имени пользователя, service role в админке не используется.
- */
-async function adminClient(): Promise<Supabase | ActionResult> {
-  if (!getSupabaseEnv()) return UNAVAILABLE;
-  if ((await getCurrentProfile())?.profile?.role !== "admin") return FORBIDDEN;
-  return createClient();
-}
-const isResult = (value: Supabase | ActionResult): value is ActionResult => "ok" in value;
 
 function failure(error: DbError, table: AdminTable, what: string): ActionResult {
   if (error?.code !== "23505" && error?.code !== "PT422") console.error(`[admin] ${what}`, error?.code);

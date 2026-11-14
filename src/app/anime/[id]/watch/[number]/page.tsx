@@ -16,6 +16,7 @@ import { resumePosition } from "@/features/progress/model";
 import { getMyEpisodeProgress } from "@/features/progress/queries";
 import { LICENSE_LABELS, resolvePlaybackSource } from "@/features/player/source";
 import { getLocalizedAnimeById } from "@/lib/anilist/api";
+import { isTitleHidden } from "@/lib/anime/hidden";
 import { parseAnimeId } from "@/lib/anime/ids";
 import { cn } from "@/lib/utils";
 
@@ -25,7 +26,7 @@ export async function generateMetadata({ params }: WatchPageProps): Promise<Meta
   const { id: rawId, number: rawNumber } = await params;
   const id = parseAnimeId(rawId);
   const number = parseEpisodeNumber(rawNumber);
-  if (!id || !number) return { title: "Серия недоступна" };
+  if (!id || !number || (await isTitleHidden(id))) return { title: "Серия недоступна", robots: { index: false } };
   const anime = await getLocalizedAnimeById(id);
   const title = anime.ok ? anime.data.title : "Аниме";
   return { title: `Серия ${number} · ${title}`, alternates: { canonical: `/anime/${id}/watch/${number}` } };
@@ -50,6 +51,8 @@ async function WatchContent({ params }: Pick<WatchPageProps, "params">) {
   const id = parseAnimeId(rawId);
   const number = parseEpisodeNumber(rawNumber);
   if (!id || !number) notFound();
+  // Серии скрытого тайтла недоступны никому (администратор управляет ими в админке); то же делает RLS.
+  if (await isTitleHidden(id)) notFound();
 
   const [anime, episode, episodes] = await Promise.all([getLocalizedAnimeById(id), getEpisode(id, number), getEpisodes(id)]);
   if (!episode) notFound();

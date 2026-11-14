@@ -6,6 +6,8 @@ import {
   toCatalogVariables,
   toMalIdVariables,
 } from "@/lib/anime/catalog-params";
+import { getHiddenIds, HIDDEN_TAG } from "@/lib/anime/hidden";
+import { withoutHidden } from "@/lib/anime/hidden-filter";
 import { mapFeatured, mapMediaToCard, mapMediaToDetails } from "@/lib/anime/mappers";
 import { loadLocalizations, localizeCards, localizeDescription, readLocalizations } from "@/lib/localization/service";
 import { hasCyrillic } from "@/lib/localization/text";
@@ -52,21 +54,23 @@ export async function getHomeCollections(
   seasonYear: number,
 ): Promise<AniListResult<HomeCollections>> {
   "use cache";
-  cacheTag("anilist", "anilist:home");
+  cacheTag("anilist", "anilist:home", HIDDEN_TAG);
 
   const result = await settle(async () => {
+    const hidden = await getHiddenIds();
     const data = await anilistRequest(HOME_COLLECTIONS_QUERY, {
       perPage: HOME_SECTION_SIZE,
       season,
       seasonYear,
       excludedGenres: EXCLUDED_GENRES,
     });
-    const trendingRaw = data.trending.media;
+    // Скрытые администратором тайтлы не попадают ни в подборки, ни в главный анонс.
+    const trendingRaw = withoutHidden(data.trending.media, hidden);
     const featuredRaw = trendingRaw.find((media) => media.bannerImage) ?? trendingRaw[0];
     const featured = featuredRaw ? mapFeatured(featuredRaw) : null;
     const trending = trendingRaw.map(mapMediaToCard);
-    const topRated = data.topRated.media.map(mapMediaToCard);
-    const seasonal = data.seasonal.media.map(mapMediaToCard);
+    const topRated = withoutHidden(data.topRated.media, hidden).map(mapMediaToCard);
+    const seasonal = withoutHidden(data.seasonal.media, hidden).map(mapMediaToCard);
 
     // Три подборки и главный тайтл — одна пачка к хранилищу и Shikimori.
     const { records, complete } = await loadLocalizations([...trending, ...topRated, ...seasonal]);
@@ -96,11 +100,12 @@ export async function getHomeCollections(
 
 export async function searchAnime(filters: CatalogFilters, page: number): Promise<AniListResult<AnimePage>> {
   "use cache";
-  cacheTag("anilist", "anilist:catalog");
+  cacheTag("anilist", "anilist:catalog", HIDDEN_TAG);
 
   const result = await settle(async () => {
-    const found = await findPage(filters, page);
-    const { items, complete } = await localizeCards(found.items);
+    const [found, hidden] = await Promise.all([findPage(filters, page), getHiddenIds()]);
+    // Скрытые тайтлы убираются уже из готовой страницы: на ней может оказаться чуть меньше 24 карточек.
+    const { items, complete } = await localizeCards(withoutHidden(found.items, hidden));
     return { page: { ...found, items }, complete };
   });
 
@@ -184,9 +189,9 @@ const LOCALIZED_ANIME_LIFE = { stale: 300, revalidate: 600, expire: 86_400 };
  */
 export async function getLocalizedAnimeById(id: number): Promise<AniListResult<AnimeDetails>> {
   "use cache";
-  cacheTag("anilist", `anilist:anime:${id}`, "localization", `localization:${id}`);
+  cacheTag("anilist", `anilist:anime:${id}`, "localization", `localization:${id}`, HIDDEN_TAG);
 
-  const [result, stored] = await Promise.all([getAnimeById(id), readLocalizations([id])]);
+  const [result, stored, hidden] = await Promise.all([getAnimeById(id), readLocalizations([id]), getHiddenIds()]);
   if (!result.ok) {
     if (result.error.code === "NOT_FOUND") cacheLife("minutes");
     else cacheLife("seconds");
@@ -208,6 +213,12 @@ export async function getLocalizedAnimeById(id: number): Promise<AniListResult<A
   );
   return {
     ok: true,
-    data: { ...localized, synonyms, description: localizeDescription(anime.description, record) },
+    data: {
+      ...localized,
+      synonyms,
+      description: localizeDescription(anime.description, record),
+      // Скрытые тайтлы не показываются и среди связанных.
+      relations: withoutHidden(anime.relations, hidden),
+    },
   };
 }

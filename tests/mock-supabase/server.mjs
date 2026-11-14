@@ -480,7 +480,8 @@ async function handleCatalogTable(req, res, url, table) {
   const admin = isAdminUser(user);
   const isEpisodes = table === "episodes";
   const store = isEpisodes ? EPISODES : SUBTITLES;
-  const published = new Set(EPISODES.filter((e) => e.license_status !== "none").map((e) => e.id));
+  // Серии с правами и не скрытого тайтла (миграция admin_titles); администратор видит все.
+  const published = new Set(EPISODES.filter((e) => e.license_status !== "none" && !animeHidden.has(e.anilist_id)).map((e) => e.id));
   const readable = (row) => admin || published.has(isEpisodes ? row.id : row.episode_id);
   if (req.method === "GET") return handleReadOnly(req, res, url, store.filter(readable));
   if (!admin) return denied(res, table);
@@ -997,7 +998,85 @@ async function handleAdminActions(req, res, url) {
   return respondRows(req, res, url, 201, [row]);
 }
 
+/**
+ * Тайтлы (миграция admin_titles, ADR-029). anime_hidden и ручной текст в anime_localizations читают все;
+ * меняет их только «триггер» title_actions — как private.title_apply. Журнал видит и пишет только admin.
+ */
+const animeHidden = new Map();
+const manualText = new Map();
+const titleActions = [];
+const TITLE_ACTION_COLUMNS = ["action", "anilist_id", "anime_title", "title_ru", "description_ru", "reason"];
+
+async function handleTitleActions(req, res, url) {
+  const user = userByToken(req);
+  if (!user) return pgError(res, 401, "42501", "permission denied for table title_actions");
+  if (req.method === "GET") return sendList(req, res, url, isAdminUser(user) ? titleActions : []);
+  if (req.method !== "POST") return pgError(res, 403, "42501", "permission denied for table title_actions");
+  const item = await readJson(req);
+  if (Object.keys(item).some((key) => !TITLE_ACTION_COLUMNS.includes(key))) {
+    return pgError(res, 403, "42501", "permission denied for table title_actions");
+  }
+  if (!isAdminUser(user)) return pgError(res, 403, "42501", "not_admin");
+  if (!Number.isInteger(item.anilist_id) || item.anilist_id <= 0) return pgError(res, 422, "PT422", "invalid_title");
+  const now = nextCommentTime();
+  const clean = (value) => (typeof value === "string" && value.trim() ? value.trim() : null);
+  const row = {
+    id: titleActions.length + 1,
+    admin_id: user.id,
+    action: item.action,
+    anilist_id: item.anilist_id,
+    anime_title: clean(item.anime_title),
+    title_ru: null,
+    description_ru: null,
+    old_title_ru: null,
+    old_description_ru: null,
+    reason: null,
+    created_at: now,
+  };
+  switch (item.action) {
+    case "set_text": {
+      const title = clean(item.title_ru);
+      const description = clean(item.description_ru);
+      if ((title?.length ?? 0) > 300 || (description?.length ?? 0) > 5000) return pgError(res, 422, "PT422", "text_too_long");
+      const current = manualText.get(item.anilist_id);
+      const oldTitle = current?.manual_title_ru ?? null;
+      const oldDescription = current?.manual_description_ru ?? null;
+      if (oldTitle === title && oldDescription === description) return pgError(res, 422, "PT422", "text_unchanged");
+      Object.assign(row, { title_ru: title, description_ru: description, old_title_ru: oldTitle, old_description_ru: oldDescription });
+      manualText.set(item.anilist_id, {
+        anilist_id: item.anilist_id,
+        title_ru: null,
+        manual_title_ru: title,
+        manual_description_ru: description,
+        updated_at: now,
+      });
+      break;
+    }
+    case "hide":
+      if (animeHidden.has(item.anilist_id)) return pgError(res, 422, "PT422", "already_hidden");
+      animeHidden.set(item.anilist_id, { anilist_id: item.anilist_id, title: row.anime_title, created_at: now });
+      row.reason = clean(item.reason);
+      break;
+    case "show":
+      if (!animeHidden.delete(item.anilist_id)) return pgError(res, 422, "PT422", "not_hidden");
+      break;
+    default:
+      return pgError(res, 422, "PT422", "unknown_action");
+  }
+  titleActions.push(row);
+  return respondRows(req, res, url, 201, [row]);
+}
+
+/** Таблицы, открытые на чтение всем: писать в них через Data API нельзя никому. */
+function handlePublicRead(req, res, url, table, rows) {
+  if (req.method !== "GET") return pgError(res, 403, "42501", `permission denied for table ${table}`);
+  return sendList(req, res, url, rows);
+}
+
 async function handleRest(req, res, path, url) {
+  if (path === "/rest/v1/title_actions") return handleTitleActions(req, res, url);
+  if (path === "/rest/v1/anime_hidden") return handlePublicRead(req, res, url, "anime_hidden", [...animeHidden.values()]);
+  if (path === "/rest/v1/anime_localizations") return handlePublicRead(req, res, url, "anime_localizations", [...manualText.values()]);
   if (path === "/rest/v1/admin_actions") return handleAdminActions(req, res, url);
   if (path === "/rest/v1/notifications") return handleNotifications(req, res, url);
   if (path === "/rest/v1/notification_prefs") return handleNotificationPrefs(req, res, url);

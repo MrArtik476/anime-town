@@ -134,6 +134,30 @@ Object.assign(
   },
 );
 
+// Тайтлы для тестов админки (правка текста и скрытие, этап 6c). Их нет в общих списках каталога и главной —
+// иначе скрытие в одном тесте меняло бы число карточек у соседних. Находятся по id и поиском по названию.
+const related = (id, english) => ({
+  relationType: "SEQUEL",
+  node: {
+    id,
+    type: "ANIME",
+    title: { romaji: english, english, native: null },
+    synonyms: [],
+    format: "TV",
+    status: "FINISHED",
+    startDate: { year: 2024, month: null, day: null },
+    coverImage: { large: null, color: null },
+    isAdult: false,
+  },
+});
+export const SEARCH_ONLY_MEDIA = [
+  media(41, { title: { romaji: "Henshuu Probe", english: "Editing Probe", native: null } }),
+  media(42, { title: { romaji: "Kakusu Probe", english: "Hiding Probe", native: null } }),
+  // Связан с 42: скрытый тайтл не должен показываться среди связанных.
+  media(43, { title: { romaji: "Tsunagari Probe", english: "Relation Probe", native: null }, relations: { edges: [related(42, "Hiding Probe")] } }),
+  media(44, { title: { romaji: "Risuto Probe", english: "List Probe", native: null } }),
+];
+
 export const GENRES = [
   "Action", "Adventure", "Comedy", "Drama", "Ecchi", "Fantasy", "Hentai", "Horror",
   "Mystery", "Romance", "Sci-Fi", "Slice of Life", "Thriller",

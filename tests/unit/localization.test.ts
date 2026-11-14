@@ -28,6 +28,8 @@ const record = (overrides: Partial<LocalizationRecord> = {}): LocalizationRecord
   sourceHash: null,
   translator: null,
   shikimoriUrl: "https://shikimori.io/animes/1001",
+  manualTitleRu: null,
+  manualDescriptionRu: null,
   updatedAt: "2026-11-01T00:00:00.000Z",
   ...overrides,
 });

@@ -8,8 +8,11 @@ import { Button } from "@/components/ui/button";
 import { parseAnimeId } from "../model";
 import { adminInputClass } from "./styles";
 
-/** «Открыть тайтл по id AniList» — чтобы добавить первую серию тайтлу, которого ещё нет в списке. */
-export function OpenTitleForm() {
+/**
+ * «Открыть тайтл по id AniList»: в разделе серий — чтобы добавить первую серию тайтлу, которого ещё нет в списке,
+ * в разделе тайтлов — чтобы править текст и видимость. basePath — куда вести.
+ */
+export function OpenTitleForm({ basePath = "/admin/episodes" }: { basePath?: "/admin/episodes" | "/admin/titles" }) {
   const router = useRouter();
   const id = useId();
   const [value, setValue] = useState("");
@@ -19,7 +22,7 @@ export function OpenTitleForm() {
     event.preventDefault();
     const animeId = parseAnimeId(value);
     setError(!animeId);
-    if (animeId) router.push(`/admin/episodes/${animeId}`);
+    if (animeId) router.push(`${basePath}/${animeId}`);
   };
 
   return (

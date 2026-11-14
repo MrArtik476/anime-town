@@ -20,6 +20,8 @@ export function rowToRecord(row: Row): LocalizationRecord {
     sourceHash: row.source_hash,
     translator: row.translator,
     shikimoriUrl: row.shikimori_url,
+    manualTitleRu: row.manual_title_ru,
+    manualDescriptionRu: row.manual_description_ru,
     updatedAt: row.updated_at,
   };
 }
@@ -35,6 +37,7 @@ function recordToRow(record: LocalizationInput): Database["public"]["Tables"]["a
     source_hash: record.sourceHash,
     translator: record.translator,
     shikimori_url: record.shikimoriUrl,
+    // Колонок manual_* здесь нет: upsert меняет только перечисленные колонки, ручной текст остаётся как был.
     // Триггер выставляет updated_at при UPDATE; при INSERT — значение по умолчанию.
   };
 }
@@ -75,7 +78,8 @@ export function createMemoryStore(now: () => Date = () => new Date()): Localizat
     },
     async upsertMany(input) {
       for (const record of input) {
-        records.set(record.anilistId, { ...record, updatedAt: now().toISOString() });
+        // Ручных полей в памяти нет: без служебного ключа их дочитывает readLocalizations публичным клиентом.
+        records.set(record.anilistId, { ...record, manualTitleRu: null, manualDescriptionRu: null, updatedAt: now().toISOString() });
       }
     },
   };

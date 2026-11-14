@@ -3,6 +3,8 @@ import type { AnimeCard, AnimeDescription } from "@/types/anime";
 
 import { descriptionHash } from "./hash";
 import { mergeShikimori, needsShikimoriRefresh, resolveDescription, resolveTitles } from "./resolve";
+import { createPublicClient } from "@/lib/supabase/public";
+
 import { getLocalizationStore } from "./store";
 import type { LocalizationRecord, LocalizationStore } from "./types";
 
@@ -25,10 +27,51 @@ export async function readLocalizations(
   store: LocalizationStore = getLocalizationStore(),
 ): Promise<StoredLocalizations> {
   try {
-    return { records: await store.getMany(ids), ok: true };
+    const records = await store.getMany(ids);
+    if (store.kind === "memory") await addManualText(records, ids);
+    return { records, ok: true };
   } catch (error) {
     console.error("[localization] хранилище недоступно", error);
     return { records: new Map(), ok: false };
+  }
+}
+
+/**
+ * Ручной текст для хранилища в памяти (нет служебного ключа: разработка и E2E). Автоматические данные там живут
+ * в процессе, а правки администратора — в базе: их читает публичный клиент (таблица открыта на чтение всем).
+ * С хранилищем Supabase этот запрос не нужен — ручные колонки приходят вместе со строкой.
+ */
+async function addManualText(records: Map<number, LocalizationRecord>, ids: number[]): Promise<void> {
+  const client = ids.length ? createPublicClient() : null;
+  if (!client) return;
+  const { data, error } = await client
+    .from("anime_localizations")
+    .select("anilist_id, manual_title_ru, manual_description_ru")
+    .in("anilist_id", ids)
+    .or("manual_title_ru.not.is.null,manual_description_ru.not.is.null");
+  if (error) throw new Error(`anime_localizations: ${error.message}`);
+  for (const row of data) {
+    const manual = { manualTitleRu: row.manual_title_ru, manualDescriptionRu: row.manual_description_ru };
+    const existing = records.get(row.anilist_id);
+    records.set(
+      row.anilist_id,
+      existing
+        ? { ...existing, ...manual }
+        : {
+            anilistId: row.anilist_id,
+            malId: null,
+            titleRu: null,
+            synonymsRu: [],
+            descriptionRu: null,
+            source: null,
+            sourceHash: null,
+            translator: null,
+            shikimoriUrl: null,
+            ...manual,
+            // Строки перевода ещё нет — «давно не сверяли», чтобы сверка с Shikimori не откладывалась.
+            updatedAt: new Date(0).toISOString(),
+          },
+    );
   }
 }
 
@@ -55,7 +98,16 @@ export async function loadLocalizations(
       mergeShikimori(entry.id, entry.malId as number, records.get(entry.id), shikimori.get(entry.malId as number)),
     );
     const now = new Date().toISOString();
-    for (const record of updated) records.set(record.anilistId, { ...record, updatedAt: now });
+    // Сверка не знает о ручном тексте (и не пишет его) — в ответе он остаётся таким, каким был прочитан.
+    for (const record of updated) {
+      const previous = records.get(record.anilistId);
+      records.set(record.anilistId, {
+        ...record,
+        manualTitleRu: previous?.manualTitleRu ?? null,
+        manualDescriptionRu: previous?.manualDescriptionRu ?? null,
+        updatedAt: now,
+      });
+    }
 
     try {
       await store.upsertMany(updated);
